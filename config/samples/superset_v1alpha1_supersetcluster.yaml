@@ -1,0 +1,12 @@
+apiVersion: superset.zncdata.dev/v1alpha1
+kind: SupersetCluster
+metadata:
+  labels:
+    app.kubernetes.io/name: supersetcluster
+    app.kubernetes.io/instance: supersetcluster-sample
+    app.kubernetes.io/part-of: superset-operator
+    app.kubernetes.io/managed-by: kustomize
+    app.kubernetes.io/created-by: superset-operator
+  name: supersetcluster-sample
+spec:
+  # TODO(user): Add fields here
