@@ -17,25 +17,22 @@ limitations under the License.
 package v1alpha1
 
 import (
+	apiv1alpha1 "github.com/zncdata-labs/superset-operator/pkg/apis/v1alpha1"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 )
 
-// EDIT THIS FILE!  THIS IS SCAFFOLDING FOR YOU TO OWN!
-// NOTE: json tags are required.  Any new fields you add must have json tags for the fields to be serialized.
-
 // SupersetClusterSpec defines the desired state of SupersetCluster
 type SupersetClusterSpec struct {
-	// INSERT ADDITIONAL SPEC FIELDS - desired state of cluster
-	// Important: Run "make" to regenerate code after modifying this file
-
-	// Foo is an example field of SupersetCluster. Edit supersetcluster_types.go to remove/update
-	Foo string `json:"foo,omitempty"`
+	Image            *ImageSpec                        `json:"image,omitempty"`
+	ClusterConfig    *ClusterConfigSpec                `json:"clusterConfig"`
+	ClusterOperation *apiv1alpha1.ClusterOperationSpec `json:"clusterOperation"`
+	Node             *NodeSpec                         `json:"node"`
+	Worker           *WorkerSpec                       `json:"worker"`
 }
 
 // SupersetClusterStatus defines the observed state of SupersetCluster
 type SupersetClusterStatus struct {
-	// INSERT ADDITIONAL STATUS FIELD - define observed state of cluster
-	// Important: Run "make" to regenerate code after modifying this file
+	Conditions []metav1.Condition `json:"conditions,omitempty"`
 }
 
 //+kubebuilder:object:root=true
