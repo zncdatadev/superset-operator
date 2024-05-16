@@ -1,68 +1,48 @@
 package cluster
 
 import (
-	"context"
-
 	supersetv1alpha1 "github.com/zncdata-labs/superset-operator/api/v1alpha1"
-	"github.com/zncdata-labs/superset-operator/internal/controller/node"
-	"github.com/zncdata-labs/superset-operator/internal/controller/worker"
-	apiv1alpha1 "github.com/zncdata-labs/superset-operator/pkg/apis/v1alpha1"
-	"github.com/zncdata-labs/superset-operator/pkg/image"
+	resourceClient "github.com/zncdata-labs/superset-operator/pkg/client"
 	"github.com/zncdata-labs/superset-operator/pkg/reconciler"
+	"github.com/zncdata-labs/superset-operator/pkg/util"
 )
+
+var _ reconciler.Reconciler = &Reconciler{}
 
 type Reconciler struct {
 	reconciler.BaseClusterReconciler[*supersetv1alpha1.SupersetClusterSpec]
-	ClusterOperation *apiv1alpha1.ClusterOperationSpec
-	ClusterConfig    *supersetv1alpha1.ClusterConfigSpec
-	Image            image.Image
+	ClusterConfig *supersetv1alpha1.ClusterConfigSpec
 }
 
-func (r *Reconciler) RegisterResources(_ context.Context) error {
-
-	node := node.NewReconciler(
-		r.Client,
-		r.ClusterConfig,
-		r.ClusterOperation,
-		r.Image,
-		"node",
-		r.Spec.Node,
-	)
-	r.AddResource(node)
-
-	worker := worker.NewReconciler(
-		r.Client,
-		r.ClusterConfig,
-		r.ClusterOperation,
-		r.Image,
-		"worker",
-		r.Spec.Worker,
-	)
-	r.AddResource(worker)
-
-	return nil
+func (r *Reconciler) RegisterResources() error {
+	panic("unimplemented")
 }
 
 func NewReconciler(
-	client reconciler.ResourceClient,
-	cluster *supersetv1alpha1.SupersetCluster,
+	client resourceClient.ResourceClient,
+	instance *supersetv1alpha1.SupersetCluster,
 ) *Reconciler {
 
-	image := image.Image{
-		Repo:           cluster.Spec.Image.Repo,
-		Custom:         cluster.Spec.Image.Custom,
-		KDSVersion:     cluster.Spec.Image.KDSVersion,
-		ProductVersion: cluster.Spec.Image.ProductVersion,
+	image := util.Image{
+		Custom:         instance.Spec.Image.Custom,
+		Repo:           instance.Spec.Image.Repo,
+		KDSVersion:     instance.Spec.Image.KDSVersion,
+		ProductVersion: instance.Spec.Image.ProductVersion,
+	}
+
+	clusterInfo := reconciler.ClusterInfo{
+		Name:             instance.Name,
+		Namespace:        instance.Namespace,
+		ClusterOperation: instance.Spec.ClusterOperation,
+		Image:            image,
 	}
 
 	return &Reconciler{
 		BaseClusterReconciler: *reconciler.NewBaseClusterReconciler(
 			client,
-			client.GetOwnerName(),
-			&cluster.Spec,
+			clusterInfo,
+			&instance.Spec,
 		),
-		ClusterOperation: cluster.Spec.ClusterOperation,
-		ClusterConfig:    cluster.Spec.ClusterConfig,
-		Image:            image,
+		ClusterConfig: instance.Spec.ClusterConfig,
 	}
 }

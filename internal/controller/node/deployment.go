@@ -2,7 +2,6 @@ package node
 
 import (
 	supersetv1alpha1 "github.com/zncdata-labs/superset-operator/api/v1alpha1"
-	"github.com/zncdata-labs/superset-operator/pkg/image"
 	"github.com/zncdata-labs/superset-operator/pkg/reconciler"
 	corev1 "k8s.io/api/core/v1"
 )

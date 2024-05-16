@@ -2,10 +2,10 @@ package node
 
 import (
 	"context"
+	"image"
 
 	supersetv1alpha1 "github.com/zncdata-labs/superset-operator/api/v1alpha1"
 	apiv1alpha1 "github.com/zncdata-labs/superset-operator/pkg/apis/v1alpha1"
-	"github.com/zncdata-labs/superset-operator/pkg/image"
 	"github.com/zncdata-labs/superset-operator/pkg/reconciler"
 )
 

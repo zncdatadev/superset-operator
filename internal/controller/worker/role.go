@@ -5,8 +5,8 @@ import (
 
 	supersetv1alpha1 "github.com/zncdata-labs/superset-operator/api/v1alpha1"
 	apiv1alpha1 "github.com/zncdata-labs/superset-operator/pkg/apis/v1alpha1"
-	"github.com/zncdata-labs/superset-operator/pkg/image"
 	"github.com/zncdata-labs/superset-operator/pkg/reconciler"
+	"github.com/zncdata-labs/superset-operator/pkg/util"
 )
 
 var _ reconciler.RoleReconciler = &Reconciler{}
@@ -42,7 +42,7 @@ func NewReconciler(
 	client reconciler.ResourceClient,
 	clusterConfig *supersetv1alpha1.ClusterConfigSpec,
 	clusterOperation *apiv1alpha1.ClusterOperationSpec,
-	imageSpec image.Image,
+	imageSpec util.Image,
 	name string,
 	spec *supersetv1alpha1.WorkerSpec,
 
