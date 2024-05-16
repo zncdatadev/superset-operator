@@ -1,0 +1,49 @@
+apiVersion: operators.coreos.com/v1alpha1
+kind: ClusterServiceVersion
+metadata:
+  annotations:
+    alm-examples: '[]'
+    capabilities: Basic Install
+  name: superset-operator.v0.0.0
+  namespace: placeholder
+spec:
+  apiservicedefinitions: {}
+  customresourcedefinitions:
+    owned:
+    - description: SupersetCluster is the Schema for the supersetclusters API
+      displayName: Superset Cluster
+      kind: SupersetCluster
+      name: supersetclusters.superset.zncdata.dev
+      version: v1alpha1
+  description: superset
+  displayName: Superset
+  icon:
+  - base64data: ""
+    mediatype: ""
+  install:
+    spec:
+      deployments: null
+    strategy: ""
+  installModes:
+  - supported: true
+    type: OwnNamespace
+  - supported: true
+    type: SingleNamespace
+  - supported: false
+    type: MultiNamespace
+  - supported: true
+    type: AllNamespaces
+  keywords:
+  - superset
+  - operator
+  links:
+  - name: Superset Operator
+    url: https://superset-operator.domain
+  maintainers:
+  - email: lwpk110@gmail.com
+    name: luwei
+  maturity: alpha
+  provider:
+    name: zncdata-labs
+    url: https://github.com/zncdata-labs/superset-operator
+  version: 0.0.0
