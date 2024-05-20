@@ -1,7 +1,10 @@
 package cluster
 
 import (
+	"context"
+
 	supersetv1alpha1 "github.com/zncdata-labs/superset-operator/api/v1alpha1"
+	"github.com/zncdata-labs/superset-operator/internal/controller/common"
 	resourceClient "github.com/zncdata-labs/superset-operator/pkg/client"
 	"github.com/zncdata-labs/superset-operator/pkg/reconciler"
 	"github.com/zncdata-labs/superset-operator/pkg/util"
@@ -11,18 +14,20 @@ var _ reconciler.Reconciler = &Reconciler{}
 
 type Reconciler struct {
 	reconciler.BaseClusterReconciler[*supersetv1alpha1.SupersetClusterSpec]
-	ClusterConfig *supersetv1alpha1.ClusterConfigSpec
+	ClusterConfig *common.ClusterConfig
 }
 
-func (r *Reconciler) RegisterResources() error {
-	panic("unimplemented")
+func (r *Reconciler) RegisterResources(_ context.Context) error {
+	r.AddResource(NewJobReconciler(r.Client, r.ClusterInfo, r.ClusterConfig))
+	r.AddResource(NewEnvSecretReconciler(r.Client, r.ClusterConfig))
+	r.AddResource(NewSupersetConfigSecretReconciler(r.Client, r.ClusterConfig))
+	return nil
 }
 
 func NewReconciler(
 	client resourceClient.ResourceClient,
 	instance *supersetv1alpha1.SupersetCluster,
 ) *Reconciler {
-
 	image := util.Image{
 		Custom:         instance.Spec.Image.Custom,
 		Repo:           instance.Spec.Image.Repo,
@@ -30,11 +35,17 @@ func NewReconciler(
 		ProductVersion: instance.Spec.Image.ProductVersion,
 	}
 
-	clusterInfo := reconciler.ClusterInfo{
+	clusterInfo := &reconciler.ClusterInfo{
 		Name:             instance.Name,
 		Namespace:        instance.Namespace,
 		ClusterOperation: instance.Spec.ClusterOperation,
 		Image:            image,
+	}
+
+	clusterConfig := &common.ClusterConfig{
+		EnvSecretName:    instance.Name + "env",
+		ConfigSecretName: instance.Name + "config",
+		Spec:             instance.Spec.ClusterConfig,
 	}
 
 	return &Reconciler{
@@ -43,6 +54,6 @@ func NewReconciler(
 			clusterInfo,
 			&instance.Spec,
 		),
-		ClusterConfig: instance.Spec.ClusterConfig,
+		ClusterConfig: clusterConfig,
 	}
 }

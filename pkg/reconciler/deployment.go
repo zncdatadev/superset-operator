@@ -9,17 +9,19 @@ import (
 	corev1 "k8s.io/api/core/v1"
 )
 
-var _ ResourceReconciler[builder.StatefulSetBuilder] = &StatefulSetReconciler{}
+var _ ResourceReconciler[builder.DeploymentBuilder] = &DeploymentReconciler{}
 
-type StatefulSetReconciler struct {
-	GenericResourceReconciler[AnySpec, builder.StatefulSetBuilder]
+// TODO should remove AnySpec? Now builder requires AnySpec, and reconciler requires builder,
+
+type DeploymentReconciler struct {
+	GenericResourceReconciler[AnySpec, builder.DeploymentBuilder]
 	Ports         []corev1.ContainerPort
-	RoleGroupInfo RoleGroupInfo
+	RoleGroupInfo *RoleGroupInfo
 }
 
 // getReplicas returns the number of replicas for the role group.
 // handle cluster operation stopped state.
-func (r *StatefulSetReconciler) getReplicas() *int32 {
+func (r *DeploymentReconciler) getReplicas() *int32 {
 	if r.RoleGroupInfo.ClusterOperation != nil && r.RoleGroupInfo.ClusterOperation.Stopped {
 		logger.Info("Cluster operation stopped, set replicas to 0")
 		zero := int32(0)
@@ -28,7 +30,7 @@ func (r *StatefulSetReconciler) getReplicas() *int32 {
 	return r.RoleGroupInfo.Replicas
 }
 
-func (r *StatefulSetReconciler) Reconcile(ctx context.Context) Result {
+func (r *DeploymentReconciler) Reconcile(ctx context.Context) Result {
 	resource, err := r.GetBuilder().
 		SetReplicas(r.getReplicas()).
 		Build(ctx)
@@ -39,31 +41,31 @@ func (r *StatefulSetReconciler) Reconcile(ctx context.Context) Result {
 	return r.ResourceReconcile(ctx, resource)
 }
 
-func (r *StatefulSetReconciler) Ready(ctx context.Context) Result {
-	obj := appv1.StatefulSet{}
+func (r *DeploymentReconciler) Ready(ctx context.Context) Result {
+	obj := appv1.Deployment{}
 	if err := r.GetClient().Get(ctx, &obj); err != nil {
 		return NewResult(true, 0, err)
 	}
 	if obj.Status.ReadyReplicas == *obj.Spec.Replicas {
-		logger.V(1).Info("StatefulSet is ready", "namespace", obj.Namespace, "name", obj.Name)
+		logger.V(1).Info("Deployment is ready", "namespace", obj.Namespace, "name", obj.Name)
 		return NewResult(false, 0, nil)
 	}
-	logger.V(1).Info("StatefulSet is not ready", "namespace", obj.Namespace, "name", obj.Name)
+	logger.V(1).Info("Deployment is not ready", "namespace", obj.Namespace, "name", obj.Name)
 	return NewResult(false, 5, nil)
 }
 
-func NewStatefulSetReconciler(
+func NewDeploymentReconciler(
 	client client.ResourceClient,
-	roleGroupInfo RoleGroupInfo,
+	roleGroupInfo *RoleGroupInfo,
 	ports []corev1.ContainerPort,
-	stsBuilder builder.StatefulSetBuilder,
-) *StatefulSetReconciler {
-	return &StatefulSetReconciler{
-		GenericResourceReconciler: *NewGenericResourceReconciler[AnySpec, builder.StatefulSetBuilder](
+	deployBuilder builder.DeploymentBuilder,
+) *DeploymentReconciler {
+	return &DeploymentReconciler{
+		GenericResourceReconciler: *NewGenericResourceReconciler[AnySpec, builder.DeploymentBuilder](
 			client,
 			roleGroupInfo.GetFullName(),
 			nil,
-			stsBuilder,
+			deployBuilder,
 		),
 		RoleGroupInfo: roleGroupInfo,
 		Ports:         ports,

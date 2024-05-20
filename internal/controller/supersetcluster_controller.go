@@ -19,13 +19,12 @@ package controller
 import (
 	"context"
 
+	supersetv1alpha1 "github.com/zncdata-labs/superset-operator/api/v1alpha1"
 	"github.com/zncdata-labs/superset-operator/internal/controller/cluster"
-	"github.com/zncdata-labs/superset-operator/pkg/reconciler"
+	resourceclient "github.com/zncdata-labs/superset-operator/pkg/client"
 	"k8s.io/apimachinery/pkg/runtime"
 	ctrl "sigs.k8s.io/controller-runtime"
 	"sigs.k8s.io/controller-runtime/pkg/client"
-
-	supersetv1alpha1 "github.com/zncdata-labs/superset-operator/api/v1alpha1"
 )
 
 // SupersetClusterReconciler reconciles a SupersetCluster object
@@ -41,9 +40,10 @@ var (
 // +kubebuilder:rbac:groups=superset.zncdata.dev,resources=supersetclusters,verbs=get;list;watch;create;update;patch;delete
 // +kubebuilder:rbac:groups=superset.zncdata.dev,resources=supersetclusters/status,verbs=get;update;patch
 // +kubebuilder:rbac:groups=superset.zncdata.dev,resources=supersetclusters/finalizers,verbs=update
+// +kubebuilder:rbac:groups=core,resources=configmaps,verbs=get;list;watch;create;update;patch;delete
+// +kubebuilder:rbac:groups=core,resources=secrets,verbs=get;list;watch;create;update;patch;delete
+// +kubebuilder:rbac:groups=core,resources=services,verbs=get;list;watch;create;update;patch;delete
 
-// For more details, check Reconcile and its Result here:
-// - https://pkg.go.dev/sigs.k8s.io/controller-runtime@v0.15.0/pkg/reconcile
 func (r *SupersetClusterReconciler) Reconcile(ctx context.Context, req ctrl.Request) (ctrl.Result, error) {
 
 	logger.V(0).Info("Reconciling SupersetCluster")
@@ -58,8 +58,14 @@ func (r *SupersetClusterReconciler) Reconcile(ctx context.Context, req ctrl.Requ
 		return ctrl.Result{}, err
 	}
 
-	resourceClient := reconciler.ResourceClient{
-		Client: r.Client,
+	resourceClient := resourceclient.ResourceClient{
+		Client:         r.Client,
+		OwnerReference: instance,
+		Labels: map[string]string{
+			"app.kubernetes.io/name":       "hbase",
+			"app.kubernetes.io/managed-by": "hbase.zncdata.dev",
+			"app.kubernetes.io/instance":   instance.Name,
+		},
 	}
 
 	clusterRreconciler := cluster.NewReconciler(resourceClient, instance)
@@ -68,11 +74,11 @@ func (r *SupersetClusterReconciler) Reconcile(ctx context.Context, req ctrl.Requ
 		return ctrl.Result{}, err
 	}
 
-	if result := clusterRreconciler.Reconcile(); result.RequeueOrNot() {
+	if result := clusterRreconciler.Reconcile(ctx); result.RequeueOrNot() {
 		return result.Result()
 	}
 
-	if result := clusterRreconciler.Ready(); result.RequeueOrNot() {
+	if result := clusterRreconciler.Ready(ctx); result.RequeueOrNot() {
 		return result.Result()
 	}
 

@@ -26,13 +26,13 @@ type ClusterReconciler interface {
 
 type BaseClusterReconciler[T AnySpec] struct {
 	BaseReconciler[T]
-	ClusterInfo ClusterInfo
+	ClusterInfo *ClusterInfo
 	resources   []Reconciler
 }
 
 func NewBaseClusterReconciler[T AnySpec](
 	client client.ResourceClient,
-	clusterInfo ClusterInfo,
+	clusterInfo *ClusterInfo,
 	spec T,
 ) *BaseClusterReconciler[T] {
 	return &BaseClusterReconciler[T]{
@@ -85,7 +85,7 @@ var _ RoleReconciler = &BaseRoleReconciler[AnySpec]{}
 type BaseRoleReconciler[T AnySpec] struct {
 	BaseClusterReconciler[T]
 
-	RoleInfo RoleInfo
+	RoleInfo *RoleInfo
 }
 
 // MergeRoleGroupSpec
@@ -124,11 +124,11 @@ func (b *BaseRoleReconciler[T]) MergeRoleGroupSpec(roleGroup any) {
 }
 
 func (b *BaseRoleReconciler[T]) GetClusterOperation() *apiv1alpha1.ClusterOperationSpec {
-	return b.RoleInfo.ClusterOperation
+	return b.RoleInfo.ClusterInfo.ClusterOperation
 }
 
 func (b *BaseRoleReconciler[T]) GetImage() util.Image {
-	return b.RoleInfo.Image
+	return b.RoleInfo.ClusterInfo.Image
 }
 
 func (b *BaseRoleReconciler[T]) Ready(ctx context.Context) Result {
@@ -142,7 +142,7 @@ func (b *BaseRoleReconciler[T]) Ready(ctx context.Context) Result {
 
 func NewBaseRoleReconciler[T AnySpec](
 	client client.ResourceClient,
-	roleInfo RoleInfo,
+	roleInfo *RoleInfo,
 	spec T,
 ) *BaseRoleReconciler[T] {
 
@@ -156,7 +156,7 @@ func NewBaseRoleReconciler[T AnySpec](
 	return &BaseRoleReconciler[T]{
 		BaseClusterReconciler: *NewBaseClusterReconciler[T](
 			client,
-			roleInfo.ClusterInfo,
+			&roleInfo.ClusterInfo,
 			spec,
 		),
 		RoleInfo: roleInfo,

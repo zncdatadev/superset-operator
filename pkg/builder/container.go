@@ -8,21 +8,54 @@ import (
 	"k8s.io/apimachinery/pkg/util/intstr"
 )
 
+var (
+	HTTPGetProbHandler2PortNames = []string{"http", "ui", "metrics", "health"}
+	TCPProbHandler2PortNames     = []string{"master"}
+)
+
 type ContainerBuilder interface {
 	Build() *corev1.Container
+
 	AddVolumeMounts(mounts []corev1.VolumeMount) ContainerBuilder
+	AddVolumeMount(mount corev1.VolumeMount) ContainerBuilder
+	ResetVolumeMounts(mounts []corev1.VolumeMount) ContainerBuilder
+	GetVolumeMounts() []corev1.VolumeMount
+
 	AddEnvVars(envVars []corev1.EnvVar) ContainerBuilder
+	ResetEnvVars(envVars []corev1.EnvVar) ContainerBuilder
+	GetEnvVars() []corev1.EnvVar
+
 	AddEnvs(envs map[string]string) ContainerBuilder
+	AddEnv(key, value string) ContainerBuilder
+
+	AddEnvFrom(envs []corev1.EnvFromSource) ContainerBuilder
+	AddEnvFromSecret(secretName string) ContainerBuilder
+	AddEnvFromConfigMap(configMapName string) ContainerBuilder
+	ResetEnvFrom(envs []corev1.EnvFromSource) ContainerBuilder
+	GetEnvFrom() []corev1.EnvFromSource
+
 	AddPorts(ports []corev1.ContainerPort) ContainerBuilder
+	AddPort(port corev1.ContainerPort) ContainerBuilder
+	ResetPorts(ports []corev1.ContainerPort) ContainerBuilder
+	GetPorts() []corev1.ContainerPort
+
 	SetResources(resources apiv1alpha1.ResourcesSpec) ContainerBuilder
+
 	SetLiveProbe(probe *corev1.Probe) ContainerBuilder
 	SetReadinessProbe(probe *corev1.Probe) ContainerBuilder
 	SetStartupProbe(probe *corev1.Probe) ContainerBuilder
+
 	SetSecurityContext(user int64, group int64, nonRoot bool) ContainerBuilder
+	// SetCommand sets the command for the container and clears the args.
 	SetCommand(command []string) ContainerBuilder
 	SetArgs(args []string) ContainerBuilder
+
 	OverrideEnv(envs map[string]string) ContainerBuilder
+	// OverrideCommand sets the command for the container and clears the command.
+	OverrideCommand(command []string) ContainerBuilder
+
 	AutomaticSetProbe() ContainerBuilder
+	SetProbeWithHealth() ContainerBuilder
 }
 
 var _ ContainerBuilder = &GenericContainerBuilder{}
@@ -63,8 +96,23 @@ func (b *GenericContainerBuilder) Build() *corev1.Container {
 }
 
 func (b *GenericContainerBuilder) AddVolumeMounts(mounts []corev1.VolumeMount) ContainerBuilder {
+	v := b.getObject().VolumeMounts
+	v = append(v, mounts...)
+	b.getObject().VolumeMounts = v
+	return b
+}
+
+func (b *GenericContainerBuilder) AddVolumeMount(mount corev1.VolumeMount) ContainerBuilder {
+	return b.AddVolumeMounts([]corev1.VolumeMount{mount})
+}
+
+func (b *GenericContainerBuilder) ResetVolumeMounts(mounts []corev1.VolumeMount) ContainerBuilder {
 	b.getObject().VolumeMounts = mounts
 	return b
+}
+
+func (b *GenericContainerBuilder) GetVolumeMounts() []corev1.VolumeMount {
+	return b.getObject().VolumeMounts
 }
 
 func (b *GenericContainerBuilder) AddEnvVars(envVars []corev1.EnvVar) ContainerBuilder {
@@ -81,6 +129,19 @@ func (b *GenericContainerBuilder) AddEnvVars(envVars []corev1.EnvVar) ContainerB
 	return b
 }
 
+func (b *GenericContainerBuilder) AddEnvVar(env corev1.EnvVar) ContainerBuilder {
+	return b.AddEnvVars([]corev1.EnvVar{env})
+}
+
+func (b *GenericContainerBuilder) ResetEnvVars(envVars []corev1.EnvVar) ContainerBuilder {
+	b.getObject().Env = envVars
+	return b
+}
+
+func (b *GenericContainerBuilder) GetEnvVars() []corev1.EnvVar {
+	return b.getObject().Env
+}
+
 func (b *GenericContainerBuilder) AddEnvs(envs map[string]string) ContainerBuilder {
 	var envVars []corev1.EnvVar
 	for name, value := range envs {
@@ -92,17 +153,70 @@ func (b *GenericContainerBuilder) AddEnvs(envs map[string]string) ContainerBuild
 	return b.AddEnvVars(envVars)
 }
 
-func (b *GenericContainerBuilder) AddPorts(ports []corev1.ContainerPort) ContainerBuilder {
-	p := b.getObject().Ports
+func (b *GenericContainerBuilder) AddEnv(key, value string) ContainerBuilder {
+	return b.AddEnvs(map[string]string{key: value})
+}
 
-	p = append(p, ports...)
-	b.getObject().Ports = p
-
+func (b *GenericContainerBuilder) AddEnvFrom(envs []corev1.EnvFromSource) ContainerBuilder {
+	e := b.getObject().EnvFrom
+	e = append(e, envs...)
+	b.getObject().EnvFrom = e
 	return b
 }
 
-// SetCommand sets the command for the container
-// and clears the args.
+func (b *GenericContainerBuilder) AddEnvFromSecret(secretName string) ContainerBuilder {
+	return b.AddEnvFrom([]corev1.EnvFromSource{
+		{
+			SecretRef: &corev1.SecretEnvSource{
+				LocalObjectReference: corev1.LocalObjectReference{
+					Name: secretName,
+				},
+			},
+		},
+	})
+}
+
+func (b *GenericContainerBuilder) AddEnvFromConfigMap(configMapName string) ContainerBuilder {
+	return b.AddEnvFrom([]corev1.EnvFromSource{
+		{
+			ConfigMapRef: &corev1.ConfigMapEnvSource{
+				LocalObjectReference: corev1.LocalObjectReference{
+					Name: configMapName,
+				},
+			},
+		},
+	})
+}
+
+func (b *GenericContainerBuilder) ResetEnvFrom(envs []corev1.EnvFromSource) ContainerBuilder {
+	b.getObject().EnvFrom = envs
+	return b
+}
+
+func (b *GenericContainerBuilder) GetEnvFrom() []corev1.EnvFromSource {
+	return b.getObject().EnvFrom
+}
+
+func (b *GenericContainerBuilder) AddPorts(ports []corev1.ContainerPort) ContainerBuilder {
+	p := b.getObject().Ports
+	p = append(p, ports...)
+	b.getObject().Ports = p
+	return b
+}
+
+func (b *GenericContainerBuilder) AddPort(port corev1.ContainerPort) ContainerBuilder {
+	return b.AddPorts([]corev1.ContainerPort{port})
+}
+
+func (b *GenericContainerBuilder) ResetPorts(ports []corev1.ContainerPort) ContainerBuilder {
+	b.getObject().Ports = ports
+	return b
+}
+
+func (b *GenericContainerBuilder) GetPorts() []corev1.ContainerPort {
+	return b.getObject().Ports
+}
+
 func (b *GenericContainerBuilder) SetCommand(command []string) ContainerBuilder {
 	b.getObject().Command = command
 	b.getObject().Args = []string{}
@@ -117,6 +231,11 @@ func (b *GenericContainerBuilder) SetArgs(args []string) ContainerBuilder {
 func (b *GenericContainerBuilder) OverrideEnv(envs map[string]string) ContainerBuilder {
 	b.getObject().Env = []corev1.EnvVar{}
 	return b.AddEnvs(envs)
+}
+
+func (b *GenericContainerBuilder) OverrideCommand(command []string) ContainerBuilder {
+	b.getObject().Command = []string{}
+	return b.SetCommand(command)
 }
 
 func (b *GenericContainerBuilder) SetResources(resources apiv1alpha1.ResourcesSpec) ContainerBuilder {
@@ -251,7 +370,55 @@ func (b *GenericContainerBuilder) getProbeHandler() *corev1.ProbeHandler {
 	return nil
 }
 
-var (
-	HTTPGetProbHandler2PortNames = []string{"http", "ui", "metrics", "health"}
-	TCPProbHandler2PortNames     = []string{"master"}
-)
+func (b *GenericContainerBuilder) SetProbeWithHealth() ContainerBuilder {
+	ok := false
+	for _, port := range b.getObject().Ports {
+		if port.Name == "http" {
+			ok = true
+			probeHandler := &corev1.ProbeHandler{
+				HTTPGet: &corev1.HTTPGetAction{
+					Path: "/health",
+					Port: intstr.FromString("http"),
+				},
+			}
+			// Set startup probe
+			startupProbe := &corev1.Probe{
+				FailureThreshold:    30,
+				InitialDelaySeconds: 4,
+				PeriodSeconds:       6,
+				SuccessThreshold:    1,
+				TimeoutSeconds:      3,
+				ProbeHandler:        *probeHandler,
+			}
+			b.SetStartupProbe(startupProbe)
+
+			// Set liveness probe
+			livenessProbe := &corev1.Probe{
+				FailureThreshold: 3,
+				PeriodSeconds:    10,
+				SuccessThreshold: 1,
+				TimeoutSeconds:   3,
+				ProbeHandler:     *probeHandler,
+			}
+			b.SetLiveProbe(livenessProbe)
+
+			// Set readiness probe
+			readinessProbe := &corev1.Probe{
+				FailureThreshold: 3,
+				PeriodSeconds:    10,
+				SuccessThreshold: 1,
+				TimeoutSeconds:   3,
+				ProbeHandler:     *probeHandler,
+			}
+			b.SetReadinessProbe(readinessProbe)
+			break
+		}
+
+	}
+
+	if !ok {
+		logger.V(2).Info("No http port found, skip setting probes")
+	}
+
+	return b
+}

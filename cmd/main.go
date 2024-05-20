@@ -18,19 +18,19 @@ package main
 
 import (
 	"flag"
+	"fmt"
 	"os"
-	"sigs.k8s.io/controller-runtime/pkg/metrics/server"
-
-	// Import all Kubernetes client auth plugins (e.g. Azure, GCP, OIDC, etc.)
-	// to ensure that exec-entrypoint and run can make use of them.
-	_ "k8s.io/client-go/plugin/pkg/client/auth"
+	"strings"
 
 	"k8s.io/apimachinery/pkg/runtime"
 	utilruntime "k8s.io/apimachinery/pkg/util/runtime"
 	clientgoscheme "k8s.io/client-go/kubernetes/scheme"
+	_ "k8s.io/client-go/plugin/pkg/client/auth"
 	ctrl "sigs.k8s.io/controller-runtime"
+	"sigs.k8s.io/controller-runtime/pkg/cache"
 	"sigs.k8s.io/controller-runtime/pkg/healthz"
 	"sigs.k8s.io/controller-runtime/pkg/log/zap"
+	"sigs.k8s.io/controller-runtime/pkg/metrics/server"
 
 	supersetv1alpha1 "github.com/zncdata-labs/superset-operator/api/v1alpha1"
 	"github.com/zncdata-labs/superset-operator/internal/controller"
@@ -66,6 +66,12 @@ func main() {
 
 	ctrl.SetLogger(zap.New(zap.UseFlagOptions(&opts)))
 
+	watchNamespaces, err := getWatchNamespaces()
+	if err != nil {
+		setupLog.Error(err, "unable to get watch namespaces")
+		os.Exit(1)
+	}
+
 	mgr, err := ctrl.NewManager(ctrl.GetConfigOrDie(), ctrl.Options{
 		Scheme:                 scheme,
 		Metrics:                server.Options{BindAddress: metricsAddr},
@@ -83,6 +89,7 @@ func main() {
 		// if you are doing or is intended to do any operation such as perform cleanups
 		// after the manager stops then its usage might be unsafe.
 		// LeaderElectionReleaseOnCancel: true,
+		Cache: cache.Options{DefaultNamespaces: watchNamespaces},
 	})
 	if err != nil {
 		setupLog.Error(err, "unable to start manager")
@@ -112,4 +119,45 @@ func main() {
 		setupLog.Error(err, "problem running manager")
 		os.Exit(1)
 	}
+}
+
+// getWatchNamespaces returns the Namespaces the operator should be watching for changes
+func getWatchNamespaces() (map[string]cache.Config, error) {
+	// WatchNamespacesEnvVar is the constant for env variable WATCH_NAMESPACES
+	// which specifies the Namespaces to watch.
+	// An empty value means the operator is running with cluster scope.
+	var watchNamespacesEnvVar = "WATCH_NAMESPACES"
+
+	ns, found := os.LookupEnv(watchNamespacesEnvVar)
+	if !found {
+		return nil, fmt.Errorf("%s must be set", watchNamespacesEnvVar)
+	}
+	nss := cleanNamespaceList(ns)
+
+	cachedNamespaces := make(map[string]cache.Config)
+
+	if len(nss) > 0 {
+		setupLog.Info("watchNamespaces", "namespaces", nss)
+		cachedNamespaces = make(map[string]cache.Config)
+		for _, ns := range nss {
+			cachedNamespaces[ns] = cache.Config{}
+		}
+	} else {
+		setupLog.Info("watchNamespaces", "namespaces", "all")
+	}
+
+	return cachedNamespaces, nil
+}
+
+func cleanNamespaceList(namespaces string) (result []string) {
+	unfilteredList := strings.Split(namespaces, ",")
+	result = make([]string, 0, len(unfilteredList))
+
+	for _, elem := range unfilteredList {
+		elem = strings.TrimSpace(elem)
+		if len(elem) != 0 {
+			result = append(result, elem)
+		}
+	}
+	return
 }

@@ -28,7 +28,7 @@ type NodeRoleGroupSpec struct {
 	Config              *NodeConfigSpec                      `json:"config,omitempty"`
 	PodDisruptionBudget *apiv1alpha1.PodDisruptionBudgetSpec `json:"podDisruptionBudget,omitempty"`
 	CommandOverrides    []string                             `json:"commandOverrides,omitempty"`
-	EnvOverrides        []string                             `json:"envOverrides,omitempty"`
+	EnvOverrides        map[string]string                    `json:"envOverrides,omitempty"`
 	ConfigOverrides     *NodeConfigOverridesSpec             `json:"configOverrides,omitempty"`
 }
 

@@ -10,8 +10,10 @@ import (
 
 type ConfigBuilder interface {
 	Builder
-	AddData(key, value string) ConfigBuilder
-	AddDecodeData(key string, value []byte) ConfigBuilder
+	AddData(data map[string]string) ConfigBuilder
+	AddDecodeData(data map[string][]byte) ConfigBuilder
+	SetData(data map[string]string) ConfigBuilder
+	ClearData() ConfigBuilder
 	GetData() map[string]string
 	GetEncodeData() map[string][]byte
 }
@@ -37,13 +39,27 @@ func NewBaseConfigBuilder(
 	}
 }
 
-func (b *BaseConfigBuilder) AddData(key, value string) ConfigBuilder {
-	b.data[key] = value
+func (b *BaseConfigBuilder) AddData(data map[string]string) ConfigBuilder {
+	for k, v := range data {
+		b.data[k] = v
+	}
 	return b
 }
 
-func (b *BaseConfigBuilder) AddDecodeData(key string, value []byte) ConfigBuilder {
-	b.data[key] = string(value)
+func (b *BaseConfigBuilder) AddDecodeData(data map[string][]byte) ConfigBuilder {
+	for k, v := range data {
+		b.data[k] = string(v)
+	}
+	return b
+}
+
+func (b *BaseConfigBuilder) SetData(data map[string]string) ConfigBuilder {
+	b.data = data
+	return b
+}
+
+func (b *BaseConfigBuilder) ClearData() ConfigBuilder {
+	b.data = make(map[string]string)
 	return b
 }
 

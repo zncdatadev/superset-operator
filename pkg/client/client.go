@@ -8,6 +8,7 @@ import (
 	appsv1 "k8s.io/api/apps/v1"
 	corev1 "k8s.io/api/core/v1"
 	"k8s.io/apimachinery/pkg/api/errors"
+	apierrors "k8s.io/apimachinery/pkg/api/errors"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 	ctrl "sigs.k8s.io/controller-runtime"
 	"sigs.k8s.io/controller-runtime/pkg/client"
@@ -24,7 +25,7 @@ var (
 )
 
 type ResourceClient struct {
-	client.Client
+	Client client.Client
 
 	OwnerReference client.Object
 
@@ -78,18 +79,44 @@ func (c *ResourceClient) GetOwnerName() string {
 	return c.OwnerReference.GetName()
 }
 
+// Get the object from the cluster
+// If the object has no namespace, it will use the owner namespace
+func (c *ResourceClient) Get(ctx context.Context, obj client.Object) error {
+	name := obj.GetName()
+	namespace := obj.GetNamespace()
+	if namespace == "" {
+		namespace = c.GetOwnerNamespace()
+		clientLogger.V(5).Info(""+
+			"ResourceClient.Get accept obj without namespace, try to use owner namespace",
+			"namespace", namespace,
+			"name", name,
+		)
+	}
+	kind := obj.GetObjectKind()
+	if err := c.Client.Get(ctx, client.ObjectKey{Namespace: namespace, Name: name}, obj); err != nil {
+		opt := []any{"ns", namespace, "name", name, "kind", kind}
+		if apierrors.IsNotFound(err) {
+			clientLogger.V(0).Info("Fetch resource NotFound", opt...)
+		} else {
+			clientLogger.Error(err, "Fetch resource occur some unknown err", opt...)
+		}
+		return err
+	}
+	return nil
+}
+
 func (c *ResourceClient) CreateOrUpdate(ctx context.Context, obj client.Object) (mutation bool, err error) {
 
 	key := client.ObjectKeyFromObject(obj)
 	namespace := obj.GetNamespace()
-	kinds, _, _ := c.Scheme().ObjectKinds(obj)
+	kinds, _, _ := c.Client.Scheme().ObjectKinds(obj)
 	name := obj.GetName()
 
 	clientLogger.V(5).Info("Creating or updating object", "Kind", kinds, "Namespace", namespace, "Name", name)
 
 	current := obj.DeepCopyObject().(client.Object)
 	// Check if the object exists, if not create a new one
-	err = c.Get(ctx, key, current)
+	err = c.Client.Get(ctx, key, current)
 	var calculateOpt = []patch.CalculateOption{
 		patch.IgnoreStatusFields(),
 	}
@@ -99,7 +126,7 @@ func (c *ResourceClient) CreateOrUpdate(ctx context.Context, obj client.Object) 
 		}
 		clientLogger.Info("Creating a new object", "Kind", kinds, "Namespace", namespace, "Name", name)
 
-		if err := c.Create(ctx, obj); err != nil {
+		if err := c.Client.Create(ctx, obj); err != nil {
 			return false, err
 		}
 		return true, nil
@@ -132,7 +159,7 @@ func (c *ResourceClient) CreateOrUpdate(ctx context.Context, obj client.Object) 
 			resourceVersion := current.(metav1.ObjectMetaAccessor).GetObjectMeta().GetResourceVersion()
 			obj.(metav1.ObjectMetaAccessor).GetObjectMeta().SetResourceVersion(resourceVersion)
 
-			if err := c.Update(ctx, obj); err != nil {
+			if err := c.Client.Update(ctx, obj); err != nil {
 				return false, err
 			}
 			return true, nil
@@ -151,7 +178,7 @@ func (c *ResourceClient) CreateOrUpdate(ctx context.Context, obj client.Object) 
 			resourceVersion := current.(metav1.ObjectMetaAccessor).GetObjectMeta().GetResourceVersion()
 			obj.(metav1.ObjectMetaAccessor).GetObjectMeta().SetResourceVersion(resourceVersion)
 
-			if err = c.Update(ctx, obj); err != nil {
+			if err = c.Client.Update(ctx, obj); err != nil {
 				return false, err
 			}
 			return true, nil
