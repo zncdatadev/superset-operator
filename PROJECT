@@ -9,7 +9,7 @@ plugins:
   manifests.sdk.operatorframework.io/v2: {}
   scorecard.sdk.operatorframework.io/v2: {}
 projectName: superset-operator
-repo: github.com/zncdata-labs/superset-operator
+repo: github.com/zncdatadev/superset-operator
 resources:
 - api:
     crdVersion: v1
@@ -18,6 +18,6 @@ resources:
   domain: zncdata.dev
   group: superset
   kind: SupersetCluster
-  path: github.com/zncdata-labs/superset-operator/api/v1alpha1
+  path: github.com/zncdatadev/superset-operator/api/v1alpha1
   version: v1alpha1
 version: "3"

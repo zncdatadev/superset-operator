@@ -1,6 +1,6 @@
 package common
 
-import supersetv1alpha1 "github.com/zncdata-labs/superset-operator/api/v1alpha1"
+import supersetv1alpha1 "github.com/zncdatadev/superset-operator/api/v1alpha1"
 
 // ClusterConfig represents the configuration of the HBase cluster.
 // This is not ClusterConfigSpec wrapper.

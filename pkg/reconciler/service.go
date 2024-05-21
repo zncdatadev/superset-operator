@@ -1,8 +1,8 @@
 package reconciler
 
 import (
-	"github.com/zncdata-labs/superset-operator/pkg/builder"
-	"github.com/zncdata-labs/superset-operator/pkg/client"
+	"github.com/zncdatadev/superset-operator/pkg/builder"
+	"github.com/zncdatadev/superset-operator/pkg/client"
 	corev1 "k8s.io/api/core/v1"
 )
 

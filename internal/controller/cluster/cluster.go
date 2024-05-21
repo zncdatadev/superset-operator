@@ -3,11 +3,11 @@ package cluster
 import (
 	"context"
 
-	supersetv1alpha1 "github.com/zncdata-labs/superset-operator/api/v1alpha1"
-	"github.com/zncdata-labs/superset-operator/internal/controller/common"
-	resourceClient "github.com/zncdata-labs/superset-operator/pkg/client"
-	"github.com/zncdata-labs/superset-operator/pkg/reconciler"
-	"github.com/zncdata-labs/superset-operator/pkg/util"
+	supersetv1alpha1 "github.com/zncdatadev/superset-operator/api/v1alpha1"
+	"github.com/zncdatadev/superset-operator/internal/controller/common"
+	resourceClient "github.com/zncdatadev/superset-operator/pkg/client"
+	"github.com/zncdatadev/superset-operator/pkg/reconciler"
+	"github.com/zncdatadev/superset-operator/pkg/util"
 )
 
 var _ reconciler.Reconciler = &Reconciler{}

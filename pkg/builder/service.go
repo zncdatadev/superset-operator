@@ -3,7 +3,7 @@ package builder
 import (
 	"context"
 
-	resourceClient "github.com/zncdata-labs/superset-operator/pkg/client"
+	resourceClient "github.com/zncdatadev/superset-operator/pkg/client"
 	corev1 "k8s.io/api/core/v1"
 	"k8s.io/apimachinery/pkg/util/intstr"
 	"sigs.k8s.io/controller-runtime/pkg/client"

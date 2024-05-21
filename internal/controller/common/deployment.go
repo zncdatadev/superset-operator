@@ -3,9 +3,9 @@ package common
 import (
 	"context"
 
-	"github.com/zncdata-labs/superset-operator/pkg/builder"
-	resourceClient "github.com/zncdata-labs/superset-operator/pkg/client"
-	"github.com/zncdata-labs/superset-operator/pkg/reconciler"
+	"github.com/zncdatadev/superset-operator/pkg/builder"
+	resourceClient "github.com/zncdatadev/superset-operator/pkg/client"
+	"github.com/zncdatadev/superset-operator/pkg/reconciler"
 	corev1 "k8s.io/api/core/v1"
 	ctrlclient "sigs.k8s.io/controller-runtime/pkg/client"
 )

@@ -1,4 +1,4 @@
-module github.com/zncdata-labs/superset-operator
+module github.com/zncdatadev/superset-operator
 
 go 1.21
 
@@ -6,7 +6,7 @@ require (
 	github.com/cisco-open/k8s-objectmatcher v1.9.0
 	github.com/onsi/ginkgo/v2 v2.14.0
 	github.com/onsi/gomega v1.30.0
-	github.com/zncdata-labs/operator-go v0.4.0
+	github.com/zncdatadev/operator-go v0.5.0
 	k8s.io/api v0.29.2
 	k8s.io/apimachinery v0.29.2
 	k8s.io/client-go v0.29.2
