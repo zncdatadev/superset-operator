@@ -3,87 +3,60 @@ package reconciler
 import (
 	"context"
 
-	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
+	resourceClient "github.com/zncdata-labs/superset-operator/pkg/client"
 	"k8s.io/apimachinery/pkg/runtime"
-	"sigs.k8s.io/controller-runtime/pkg/client"
+	ctrlclient "sigs.k8s.io/controller-runtime/pkg/client"
 )
 
 type AnySpec any
 
 type Reconciler interface {
-	GetClient() ResourceClient
-	Reconcile() Result
-	Ready() Result
+	GetClient() *resourceClient.ResourceClient
+	GetCtrlClient() ctrlclient.Client
+	GetCtrlScheme() *runtime.Scheme
+	Reconcile(ctx context.Context) Result
+	Ready(ctx context.Context) Result
+	GetNameWithSuffix(suffix string) string
 }
 
 var _ Reconciler = &BaseReconciler[AnySpec]{}
 
 type BaseReconciler[T AnySpec] struct {
-	Client ResourceClient
+	// Do not use ptr, to avoid other packages to modify the client
+	Client resourceClient.ResourceClient
 	Name   string
 
 	Spec T
 }
 
-func (b *BaseReconciler[T]) GetClient() ResourceClient {
-	return b.Client
+func (b *BaseReconciler[T]) GetClient() *resourceClient.ResourceClient {
+	return &b.Client
+}
+
+func (b *BaseReconciler[T]) GetCtrlClient() ctrlclient.Client {
+	return b.Client.Client
 }
 
 func (b *BaseReconciler[T]) GetName() string {
 	return b.Name
 }
 
-func (b *BaseReconciler[T]) GetScheme() *runtime.Scheme {
-	return b.Client.Scheme()
+func (b *BaseReconciler[T]) GetNameWithSuffix(suffix string) string {
+	return b.Name + "-" + suffix
 }
 
-func (b *BaseReconciler[T]) Ready() Result {
+func (b *BaseReconciler[T]) GetCtrlScheme() *runtime.Scheme {
+	return b.Client.Client.Scheme()
+}
+
+func (b *BaseReconciler[T]) Ready(ctx context.Context) Result {
 	panic("unimplemented")
 }
 
-func (b *BaseReconciler[T]) Reconcile() Result {
+func (b *BaseReconciler[T]) Reconcile(ctx context.Context) Result {
 	panic("unimplemented")
 }
 
 func (b *BaseReconciler[T]) GetSpec() T {
 	return b.Spec
-}
-
-type ResourceReconciler[T client.Object] interface {
-	Reconciler
-	Build(ctx context.Context) (T, error)
-	GetObjectMeta() metav1.ObjectMeta
-}
-
-var _ ResourceReconciler[client.Object] = &BaseResourceReconciler[AnySpec]{}
-
-type BaseResourceReconciler[T AnySpec] struct {
-	BaseReconciler[T]
-}
-
-func (b *BaseResourceReconciler[T]) GetObjectMeta() metav1.ObjectMeta {
-	return metav1.ObjectMeta{
-		Name:        b.Name,
-		Namespace:   b.Client.GetOwnerNamespace(),
-		Labels:      b.Client.GetLabels(),
-		Annotations: b.Client.GetAnnotations(),
-	}
-}
-
-func NewBaseResourceReconciler[T AnySpec](
-	client ResourceClient,
-	name string,
-	spec T,
-) *BaseResourceReconciler[T] {
-	return &BaseResourceReconciler[T]{
-		BaseReconciler: BaseReconciler[T]{
-			Client: client,
-			Name:   name,
-			Spec:   spec,
-		},
-	}
-}
-
-func (b *BaseResourceReconciler[T]) Build(ctx context.Context) (client.Object, error) {
-	panic("unimplemented")
 }

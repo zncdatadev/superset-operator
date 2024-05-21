@@ -1,5 +1,10 @@
 package v1alpha1
 
+type ContainerLoggingSpec struct {
+	// +kubebuilder:validation:Optional
+	SparkHistory *LoggingConfigSpec `json:"sparkHistory,omitempty"`
+}
+
 type LoggingConfigSpec struct {
 	// +kubebuilder:validation:Optional
 	Loggers map[string]*LogLevelSpec `json:"loggers,omitempty"`
@@ -14,7 +19,7 @@ type LoggingConfigSpec struct {
 // LogLevelSpec
 // level mapping example
 // |---------------------|-----------------|
-// |   App log level     |  CRD log level  |
+// |  App log level      |  kds log level  |
 // |---------------------|-----------------|
 // |  CRITICAL           |  FATAL          |
 // |  ERROR              |  ERROR          |
