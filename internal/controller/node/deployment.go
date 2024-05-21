@@ -1,10 +1,10 @@
 package node
 
 import (
-	supersetv1alpha1 "github.com/zncdata-labs/superset-operator/api/v1alpha1"
-	"github.com/zncdata-labs/superset-operator/internal/controller/common"
-	resourceClient "github.com/zncdata-labs/superset-operator/pkg/client"
-	"github.com/zncdata-labs/superset-operator/pkg/reconciler"
+	supersetv1alpha1 "github.com/zncdatadev/superset-operator/api/v1alpha1"
+	"github.com/zncdatadev/superset-operator/internal/controller/common"
+	resourceClient "github.com/zncdatadev/superset-operator/pkg/client"
+	"github.com/zncdatadev/superset-operator/pkg/reconciler"
 	corev1 "k8s.io/api/core/v1"
 )
 

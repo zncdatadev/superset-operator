@@ -4,8 +4,8 @@ import (
 	"context"
 	"time"
 
-	"github.com/zncdata-labs/superset-operator/pkg/builder"
-	resourceClient "github.com/zncdata-labs/superset-operator/pkg/client"
+	"github.com/zncdatadev/superset-operator/pkg/builder"
+	resourceClient "github.com/zncdatadev/superset-operator/pkg/client"
 	ctrl "sigs.k8s.io/controller-runtime"
 	"sigs.k8s.io/controller-runtime/pkg/client"
 )

@@ -3,7 +3,7 @@ package reconciler
 import (
 	"context"
 
-	resourceClient "github.com/zncdata-labs/superset-operator/pkg/client"
+	resourceClient "github.com/zncdatadev/superset-operator/pkg/client"
 	"k8s.io/apimachinery/pkg/runtime"
 	ctrlclient "sigs.k8s.io/controller-runtime/pkg/client"
 )

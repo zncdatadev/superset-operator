@@ -3,11 +3,11 @@ package cluster
 import (
 	"context"
 
-	"github.com/zncdata-labs/superset-operator/internal/controller/common"
-	"github.com/zncdata-labs/superset-operator/pkg/builder"
-	"github.com/zncdata-labs/superset-operator/pkg/client"
-	"github.com/zncdata-labs/superset-operator/pkg/reconciler"
-	"github.com/zncdata-labs/superset-operator/pkg/util"
+	"github.com/zncdatadev/superset-operator/internal/controller/common"
+	"github.com/zncdatadev/superset-operator/pkg/builder"
+	"github.com/zncdatadev/superset-operator/pkg/client"
+	"github.com/zncdatadev/superset-operator/pkg/reconciler"
+	"github.com/zncdatadev/superset-operator/pkg/util"
 	corev1 "k8s.io/api/core/v1"
 	k8sclient "sigs.k8s.io/controller-runtime/pkg/client"
 )

@@ -1,5 +1,5 @@
 /*
-Copyright 2024 zncdata-labs.
+Copyright 2024 zncdatadev.
 
 Licensed under the Apache License, Version 2.0 (the "License");
 you may not use this file except in compliance with the License.
@@ -32,8 +32,8 @@ import (
 	"sigs.k8s.io/controller-runtime/pkg/log/zap"
 	"sigs.k8s.io/controller-runtime/pkg/metrics/server"
 
-	supersetv1alpha1 "github.com/zncdata-labs/superset-operator/api/v1alpha1"
-	"github.com/zncdata-labs/superset-operator/internal/controller"
+	supersetv1alpha1 "github.com/zncdatadev/superset-operator/api/v1alpha1"
+	"github.com/zncdatadev/superset-operator/internal/controller"
 	//+kubebuilder:scaffold:imports
 )
 
