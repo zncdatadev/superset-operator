@@ -7,8 +7,8 @@ import (
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 )
 
-func ExampleResourceClient_Get() {
-	client := &ResourceClient{}
+func ExampleClient_Get() {
+	client := &Client{}
 
 	// Get a service in the same namespace as the owner object
 	svcInOwnerNamespace := &corev1.Service{

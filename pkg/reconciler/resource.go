@@ -5,29 +5,44 @@ import (
 	"time"
 
 	"github.com/zncdatadev/superset-operator/pkg/builder"
-	resourceClient "github.com/zncdatadev/superset-operator/pkg/client"
+	"github.com/zncdatadev/superset-operator/pkg/client"
 	ctrl "sigs.k8s.io/controller-runtime"
-	"sigs.k8s.io/controller-runtime/pkg/client"
+	ctrlclient "sigs.k8s.io/controller-runtime/pkg/client"
 )
 
 type ResourceReconciler[B builder.Builder] interface {
 	Reconciler
 	GetBuilder() B
-	ResourceReconcile(ctx context.Context, resource client.Object) Result
+	ResourceReconcile(ctx context.Context, resource ctrlclient.Object) Result
 }
 
-var _ ResourceReconciler[builder.Builder] = &GenericResourceReconciler[AnySpec, builder.Builder]{}
+var _ ResourceReconciler[builder.Builder] = &GenericResourceReconciler[builder.Builder]{}
 
-type GenericResourceReconciler[T AnySpec, B builder.Builder] struct {
-	BaseReconciler[T]
+type GenericResourceReconciler[B builder.Builder] struct {
+	BaseReconciler[AnySpec]
 	Builder B
 }
 
-func (r *GenericResourceReconciler[T, B]) GetBuilder() B {
+func NewGenericResourceReconciler[B builder.Builder](
+	client *client.Client,
+	options builder.Options,
+	builder B,
+) *GenericResourceReconciler[B] {
+	return &GenericResourceReconciler[B]{
+		BaseReconciler: BaseReconciler[AnySpec]{
+			Client:  client,
+			Options: options,
+			Spec:    nil,
+		},
+		Builder: builder,
+	}
+}
+
+func (r *GenericResourceReconciler[B]) GetBuilder() B {
 	return r.Builder
 }
 
-func (r *GenericResourceReconciler[T, B]) ResourceReconcile(ctx context.Context, resource client.Object) Result {
+func (r *GenericResourceReconciler[B]) ResourceReconcile(ctx context.Context, resource ctrlclient.Object) Result {
 
 	if err := ctrl.SetControllerReference(r.Client.OwnerReference, resource, r.GetCtrlScheme()); err != nil {
 		return NewResult(true, 0, err)
@@ -41,7 +56,7 @@ func (r *GenericResourceReconciler[T, B]) ResourceReconcile(ctx context.Context,
 	return NewResult(false, 0, nil)
 }
 
-func (r *GenericResourceReconciler[T, B]) Reconcile(ctx context.Context) Result {
+func (r *GenericResourceReconciler[B]) Reconcile(ctx context.Context) Result {
 	resource, err := r.GetBuilder().Build(ctx)
 
 	if err != nil {
@@ -50,42 +65,25 @@ func (r *GenericResourceReconciler[T, B]) Reconcile(ctx context.Context) Result 
 	return r.ResourceReconcile(ctx, resource)
 }
 
-func (r *GenericResourceReconciler[T, B]) Ready(ctx context.Context) Result {
+func (r *GenericResourceReconciler[B]) Ready(ctx context.Context) Result {
 	return NewResult(false, 0, nil)
 }
 
-func NewGenericResourceReconciler[T AnySpec, B builder.Builder](
-	client resourceClient.ResourceClient,
-	name string,
-	spec T,
-	builder B,
-) *GenericResourceReconciler[T, B] {
-	return &GenericResourceReconciler[T, B]{
-		BaseReconciler: BaseReconciler[T]{
-			Client: client,
-			Name:   name,
-			Spec:   spec,
-		},
-		Builder: builder,
-	}
-}
-
 type SimpleResourceReconciler[B builder.Builder] struct {
-	GenericResourceReconciler[AnySpec, B]
+	GenericResourceReconciler[B]
 }
 
 // NewSimpleResourceReconciler creates a new resource reconciler with a simple builder
 // that does not require a spec, and can not use the spec.
 func NewSimpleResourceReconciler[B builder.Builder](
-	client resourceClient.ResourceClient,
-	name string,
+	client *client.Client,
+	clusterOptions builder.Options,
 	builder B,
 ) *SimpleResourceReconciler[B] {
 	return &SimpleResourceReconciler[B]{
-		GenericResourceReconciler: *NewGenericResourceReconciler[AnySpec, B](
+		GenericResourceReconciler: *NewGenericResourceReconciler[B](
 			client,
-			name,
-			nil,
+			clusterOptions,
 			builder,
 		),
 	}

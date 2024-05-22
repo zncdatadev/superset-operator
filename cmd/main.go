@@ -18,7 +18,6 @@ package main
 
 import (
 	"flag"
-	"fmt"
 	"os"
 	"strings"
 
@@ -66,12 +65,6 @@ func main() {
 
 	ctrl.SetLogger(zap.New(zap.UseFlagOptions(&opts)))
 
-	watchNamespaces, err := getWatchNamespaces()
-	if err != nil {
-		setupLog.Error(err, "unable to get watch namespaces")
-		os.Exit(1)
-	}
-
 	mgr, err := ctrl.NewManager(ctrl.GetConfigOrDie(), ctrl.Options{
 		Scheme:                 scheme,
 		Metrics:                server.Options{BindAddress: metricsAddr},
@@ -89,7 +82,7 @@ func main() {
 		// if you are doing or is intended to do any operation such as perform cleanups
 		// after the manager stops then its usage might be unsafe.
 		// LeaderElectionReleaseOnCancel: true,
-		Cache: cache.Options{DefaultNamespaces: watchNamespaces},
+		Cache: cache.Options{DefaultNamespaces: getWatchNamespaces()},
 	})
 	if err != nil {
 		setupLog.Error(err, "unable to start manager")
@@ -122,7 +115,7 @@ func main() {
 }
 
 // getWatchNamespaces returns the Namespaces the operator should be watching for changes
-func getWatchNamespaces() (map[string]cache.Config, error) {
+func getWatchNamespaces() map[string]cache.Config {
 	// WatchNamespacesEnvVar is the constant for env variable WATCH_NAMESPACES
 	// which specifies the Namespaces to watch.
 	// An empty value means the operator is running with cluster scope.
@@ -130,7 +123,8 @@ func getWatchNamespaces() (map[string]cache.Config, error) {
 
 	ns, found := os.LookupEnv(watchNamespacesEnvVar)
 	if !found {
-		return nil, fmt.Errorf("%s must be set", watchNamespacesEnvVar)
+		setupLog.Info("watchNamespaces", "namespaces", "all")
+		return nil
 	}
 	nss := cleanNamespaceList(ns)
 
@@ -146,7 +140,7 @@ func getWatchNamespaces() (map[string]cache.Config, error) {
 		setupLog.Info("watchNamespaces", "namespaces", "all")
 	}
 
-	return cachedNamespaces, nil
+	return cachedNamespaces
 }
 
 func cleanNamespaceList(namespaces string) (result []string) {

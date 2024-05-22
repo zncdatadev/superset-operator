@@ -3,7 +3,7 @@ package builder
 import (
 	"context"
 
-	resourceClient "github.com/zncdatadev/superset-operator/pkg/client"
+	"github.com/zncdatadev/superset-operator/pkg/client"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 	ctrl "sigs.k8s.io/controller-runtime"
 	ctrlclient "sigs.k8s.io/controller-runtime/pkg/client"
@@ -16,41 +16,50 @@ var (
 type Builder interface {
 	Build(ctx context.Context) (ctrlclient.Object, error)
 	GetObjectMeta() metav1.ObjectMeta
-	GetClient() resourceClient.ResourceClient
+	GetClient() *client.Client
+	SetName(name string)
 	GetName() string
 }
 
 var _ Builder = &BaseResourceBuilder{}
 
 type BaseResourceBuilder struct {
-	Client resourceClient.ResourceClient
+	Client  *client.Client
+	Options Options
 
-	Name string
+	modifiedName string
 }
 
-func (b *BaseResourceBuilder) GetClient() resourceClient.ResourceClient {
+func (b *BaseResourceBuilder) GetClient() *client.Client {
 	return b.Client
 }
 
+func (b *BaseResourceBuilder) SetName(name string) {
+	b.modifiedName = name
+}
+
 func (b *BaseResourceBuilder) GetName() string {
-	return b.Name
+	if b.modifiedName != "" {
+		return b.modifiedName
+	}
+	return b.Options.GetFullName()
 }
 
 func (b *BaseResourceBuilder) GetObjectMeta() metav1.ObjectMeta {
 	return metav1.ObjectMeta{
-		Name:        b.Name,
+		Name:        b.GetName(),
 		Namespace:   b.Client.GetOwnerNamespace(),
-		Labels:      b.Client.GetLabels(),
-		Annotations: b.Client.GetAnnotations(),
+		Labels:      b.Options.GetLabels(),
+		Annotations: b.Options.GetAnnotations(),
 	}
 }
 
 // GetObjectMetaWithClusterScope returns the object meta with cluster scope
 func (b *BaseResourceBuilder) GetObjectMetaWithClusterScope() metav1.ObjectMeta {
 	return metav1.ObjectMeta{
-		Name:        b.Name,
-		Labels:      b.Client.GetLabels(),
-		Annotations: b.Client.GetAnnotations(),
+		Name:        b.GetName(),
+		Labels:      b.Options.GetLabels(),
+		Annotations: b.Options.GetAnnotations(),
 	}
 }
 

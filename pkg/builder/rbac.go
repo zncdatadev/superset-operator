@@ -43,13 +43,13 @@ type GenericServiceAccountBuilder struct {
 }
 
 func NewGenericServiceAccountBuilder(
-	client resourceClient.ResourceClient,
-	name string,
+	client *resourceClient.Client,
+	options Options,
 ) *GenericServiceAccountBuilder {
 	return &GenericServiceAccountBuilder{
 		BaseResourceBuilder: BaseResourceBuilder{
-			Client: client,
-			Name:   name,
+			Client:  client,
+			Options: options,
 		},
 	}
 }
@@ -76,13 +76,13 @@ type GenericRoleBuilder struct {
 }
 
 func NewGenericRoleBuilder(
-	client resourceClient.ResourceClient,
-	name string,
+	client *resourceClient.Client,
+	options Options,
 ) *GenericRoleBuilder {
 	return &GenericRoleBuilder{
 		BaseResourceBuilder: BaseResourceBuilder{
-			Client: client,
-			Name:   name,
+			Client:  client,
+			Options: options,
 		},
 	}
 }
@@ -109,13 +109,13 @@ type GenericRoleBindingBuilder struct {
 }
 
 func NewGenericRoleBindingBuilder(
-	client resourceClient.ResourceClient,
-	name string,
+	client *resourceClient.Client,
+	options Options,
 ) *GenericRoleBindingBuilder {
 	return &GenericRoleBindingBuilder{
 		BaseResourceBuilder: BaseResourceBuilder{
-			Client: client,
-			Name:   name,
+			Client:  client,
+			Options: options,
 		},
 	}
 }
@@ -142,13 +142,13 @@ type GenericClusterRoleBuilder struct {
 }
 
 func NewGenericClusterRoleBuilder(
-	client resourceClient.ResourceClient,
-	name string,
+	client *resourceClient.Client,
+	options Options,
 ) *GenericClusterRoleBuilder {
 	return &GenericClusterRoleBuilder{
 		BaseResourceBuilder: BaseResourceBuilder{
-			Client: client,
-			Name:   name,
+			Client:  client,
+			Options: options,
 		},
 	}
 }
@@ -177,13 +177,13 @@ type GenericClusterRoleBindingBuilder struct {
 }
 
 func NewGenericClusterRoleBindingBuilder(
-	client resourceClient.ResourceClient,
-	name string,
+	client *resourceClient.Client,
+	options Options,
 ) *GenericClusterRoleBindingBuilder {
 	return &GenericClusterRoleBindingBuilder{
 		BaseResourceBuilder: BaseResourceBuilder{
-			Client: client,
-			Name:   name,
+			Client:  client,
+			Options: options,
 		},
 	}
 }

@@ -6,34 +6,34 @@ import (
 	"github.com/zncdatadev/superset-operator/pkg/builder"
 	"github.com/zncdatadev/superset-operator/pkg/client"
 	appv1 "k8s.io/api/apps/v1"
-	corev1 "k8s.io/api/core/v1"
 )
 
 var _ ResourceReconciler[builder.DeploymentBuilder] = &DeploymentReconciler{}
 
-// TODO should remove AnySpec? Now builder requires AnySpec, and reconciler requires builder,
-
 type DeploymentReconciler struct {
-	GenericResourceReconciler[AnySpec, builder.DeploymentBuilder]
-	Ports         []corev1.ContainerPort
-	RoleGroupInfo *RoleGroupInfo
+	GenericResourceReconciler[builder.DeploymentBuilder]
+	Options *builder.RoleGroupOptions
 }
 
 // getReplicas returns the number of replicas for the role group.
 // handle cluster operation stopped state.
 func (r *DeploymentReconciler) getReplicas() *int32 {
-	if r.RoleGroupInfo.ClusterOperation != nil && r.RoleGroupInfo.ClusterOperation.Stopped {
+	clusterOperations := r.Options.GetClusterOperation()
+	if clusterOperations != nil && clusterOperations.Stopped {
 		logger.Info("Cluster operation stopped, set replicas to 0")
 		zero := int32(0)
 		return &zero
 	}
-	return r.RoleGroupInfo.Replicas
+	return nil
 }
 
 func (r *DeploymentReconciler) Reconcile(ctx context.Context) Result {
-	resource, err := r.GetBuilder().
-		SetReplicas(r.getReplicas()).
-		Build(ctx)
+	resourceBuilder := r.GetBuilder()
+	replicas := r.getReplicas()
+	if replicas != nil {
+		resourceBuilder.SetReplicas(replicas)
+	}
+	resource, err := resourceBuilder.Build(ctx)
 
 	if err != nil {
 		return NewResult(true, 0, err)
@@ -43,7 +43,7 @@ func (r *DeploymentReconciler) Reconcile(ctx context.Context) Result {
 
 func (r *DeploymentReconciler) Ready(ctx context.Context) Result {
 	obj := appv1.Deployment{}
-	if err := r.GetClient().Get(ctx, &obj); err != nil {
+	if err := r.Client.Get(ctx, &obj); err != nil {
 		return NewResult(true, 0, err)
 	}
 	if obj.Status.ReadyReplicas == *obj.Spec.Replicas {
@@ -55,19 +55,15 @@ func (r *DeploymentReconciler) Ready(ctx context.Context) Result {
 }
 
 func NewDeploymentReconciler(
-	client client.ResourceClient,
-	roleGroupInfo *RoleGroupInfo,
-	ports []corev1.ContainerPort,
+	client *client.Client,
+	options *builder.RoleGroupOptions,
 	deployBuilder builder.DeploymentBuilder,
 ) *DeploymentReconciler {
 	return &DeploymentReconciler{
-		GenericResourceReconciler: *NewGenericResourceReconciler[AnySpec, builder.DeploymentBuilder](
+		GenericResourceReconciler: *NewGenericResourceReconciler[builder.DeploymentBuilder](
 			client,
-			roleGroupInfo.GetFullName(),
-			nil,
+			options,
 			deployBuilder,
 		),
-		RoleGroupInfo: roleGroupInfo,
-		Ports:         ports,
 	}
 }

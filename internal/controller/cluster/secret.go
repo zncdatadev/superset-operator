@@ -2,15 +2,17 @@ package cluster
 
 import (
 	"context"
+	"encoding/base64"
 	"errors"
 	"fmt"
 
 	"github.com/zncdatadev/superset-operator/internal/controller/common"
 	"github.com/zncdatadev/superset-operator/pkg/builder"
-	resourceClient "github.com/zncdatadev/superset-operator/pkg/client"
+	"github.com/zncdatadev/superset-operator/pkg/client"
 	"github.com/zncdatadev/superset-operator/pkg/reconciler"
 	"github.com/zncdatadev/superset-operator/pkg/util"
 	corev1 "k8s.io/api/core/v1"
+	apierrors "k8s.io/apimachinery/pkg/api/errors"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 	ctrlclient "sigs.k8s.io/controller-runtime/pkg/client"
 )
@@ -23,13 +25,14 @@ type EnvSecretBuilder struct {
 }
 
 func NewEnvSecretBuilder(
-	client resourceClient.ResourceClient,
+	client *client.Client,
 	clusterConfig *common.ClusterConfig,
+	options builder.Options,
 ) *EnvSecretBuilder {
 	return &EnvSecretBuilder{
 		SecretBuilder: *builder.NewSecretBuilder(
 			client,
-			clusterConfig.EnvSecretName,
+			options,
 		),
 		ClusterConfig: clusterConfig,
 	}
@@ -71,7 +74,7 @@ func (b *EnvSecretBuilder) getRedisConfig(ctx context.Context) (map[string]strin
 	if redisSpec.Host == "" {
 		return nil, fmt.Errorf(
 			"redis host is required, cluster: %s, namespace: %s",
-			b.Name,
+			b.Options.GetName(),
 			ns,
 		)
 	}
@@ -79,7 +82,7 @@ func (b *EnvSecretBuilder) getRedisConfig(ctx context.Context) (map[string]strin
 	env["REDIS_HOST"] = redisSpec.Host
 	env["REDIS_PORT"] = fmt.Sprintf("%d", redisSpec.Port)
 	env["REDIS_DB"] = fmt.Sprintf("%d", redisSpec.DB)
-	env["REDIS_PROTOCOL"] = redisSpec.Proto
+	env["REDIS_PROTO"] = redisSpec.Proto
 
 	return env, nil
 }
@@ -92,10 +95,10 @@ func (b *EnvSecretBuilder) getDBConfig(ctx context.Context) (map[string]string, 
 
 	dbSpec := b.ClusterConfig.Spec.Database
 
-	var dbInline *resourceClient.DatabaseParams
+	var dbInline *client.DatabaseParams
 
 	if dbSpec.Inline != nil {
-		dbInline = resourceClient.NewDatabaseParams(
+		dbInline = client.NewDatabaseParams(
 			dbSpec.Inline.Driver,
 			dbSpec.Inline.Username,
 			dbSpec.Inline.Password,
@@ -105,10 +108,10 @@ func (b *EnvSecretBuilder) getDBConfig(ctx context.Context) (map[string]string, 
 		)
 	}
 
-	dbConfig := resourceClient.DatabaseConfiguration{
+	dbConfig := client.DatabaseConfiguration{
 		Client:      b.Client,
 		Context:     ctx,
-		DbReference: &dbSpec.Reference,
+		DbReference: dbSpec.Reference,
 		DbInline:    dbInline,
 	}
 
@@ -127,18 +130,127 @@ func (b *EnvSecretBuilder) getDBConfig(ctx context.Context) (map[string]string, 
 	return env, nil
 }
 
+// GetAdminInfoFromSecret gets the admin info from the secret.
+// If the secret is not set, it will return the admin info from the cluster config.
+// If the secret is set, it will check the secret data.
+func (b *EnvSecretBuilder) GetAdminInfoFromSecret(ctx context.Context) (map[string]string, error) {
+	adminSpec := b.ClusterConfig.Spec.Administrator
+	if adminSpec.ExistSecret == "" {
+		return map[string]string{
+			"ADMIN_USER":      adminSpec.Username,
+			"ADMIN_FIRSTNAME": adminSpec.FirstName,
+			"ADMIN_LASTNAME":  adminSpec.LastName,
+			"ADMIN_EMAIL":     adminSpec.Email,
+			"ADMIN_PASSWORD":  adminSpec.Password,
+		}, nil
+	}
+
+	// exist secret found, use first
+
+	secretObj := &corev1.Secret{
+		ObjectMeta: metav1.ObjectMeta{
+			Name: adminSpec.ExistSecret,
+		},
+	}
+
+	if err := b.Client.Client.Get(ctx, ctrlclient.ObjectKey{Namespace: b.Client.GetOwnerNamespace(), Name: adminSpec.ExistSecret}, secretObj); err != nil {
+		if apierrors.IsNotFound(err) {
+			return nil, fmt.Errorf("secret not found, secret: %s, namespace: %s", secretObj.Name, b.Client.GetOwnerNamespace())
+		} else {
+			return nil, err
+		}
+	}
+
+	if secretObj.Data == nil {
+		return nil, fmt.Errorf("secret data is empty, secret: %s, namespace: %s", secretObj.Name, b.Client.GetOwnerNamespace())
+	}
+
+	if _, ok := secretObj.Data["ADMIN_USER"]; !ok {
+		return nil, fmt.Errorf("username not found in secret: %s, namespace: %s", secretObj.Name, b.Client.GetOwnerNamespace())
+	}
+
+	if _, ok := secretObj.Data["ADMIN_PASSWORD"]; !ok {
+		return nil, fmt.Errorf("password not found in secret: %s, namespace: %s", secretObj.Name, b.Client.GetOwnerNamespace())
+	}
+
+	logger.V(1).Info("Get admin info from secret, and checkd, it will mount to container deriectly", "namespace", b.Client.GetOwnerNamespace(), "secret", secretObj.Name)
+	return nil, nil
+}
+
+// getFlaskSecretKey generates a secret key for flask app.
+func (b *EnvSecretBuilder) getFlaskSecretKey() (map[string]string, error) {
+	var key string
+	appSecretKeySpec := b.ClusterConfig.Spec.AppSecretKey
+	if appSecretKeySpec == nil {
+		key = b.getRandomString(42)
+	} else if appSecretKeySpec.ExistSecret != "" {
+		secretObj := &corev1.Secret{
+			ObjectMeta: metav1.ObjectMeta{
+				Name: appSecretKeySpec.ExistSecret,
+			},
+		}
+		if err := b.Client.Get(context.Background(), secretObj); err != nil {
+			return nil, err
+		}
+		_, ok := secretObj.Data["SUPERSET_SECRET_KEY"]
+		if !ok {
+			return nil, fmt.Errorf("secret key not found in secret: %s, namespace: %s",
+				appSecretKeySpec.ExistSecret,
+				b.Client.GetOwnerNamespace(),
+			)
+		}
+		logger.V(1).Info("Get flask secret key from secret, and checked, it will mount to container deriectly", "namespace", b.Client.GetOwnerNamespace(), "secret", secretObj.Name)
+		return nil, nil
+	} else if appSecretKeySpec.SecretKey != "" {
+		key = appSecretKeySpec.SecretKey
+	} else {
+		key = b.getRandomString(42)
+	}
+
+	return map[string]string{
+		"SUPERSET_SECRET_KEY": key,
+	}, nil
+
+}
+
+// The secret key is generated by the owner reference UID.
+// TODO: maybe we can use a more secure way to generate the secret key.
+func (b *EnvSecretBuilder) getRandomString(length int) string {
+	uid := b.Client.GetOwnerReference().GetUID()
+	data := base64.StdEncoding.EncodeToString([]byte(uid))
+	if len(data) > length {
+		return data[:length]
+	}
+	return data
+}
+
 func (b *EnvSecretBuilder) Build(ctx context.Context) (ctrlclient.Object, error) {
+
+	adminConfig, err := b.GetAdminInfoFromSecret(ctx)
+	if err != nil {
+		return nil, err
+	}
+	b.AddData(adminConfig)
+
 	redisConfig, err := b.getRedisConfig(ctx)
 	if err != nil {
 		return nil, err
 	}
+	b.AddData(redisConfig)
 
 	dbConfig, err := b.getDBConfig(ctx)
 	if err != nil {
 		return nil, err
 	}
-	b.AddData(redisConfig)
 	b.AddData(dbConfig)
+
+	flaskSecretKeyData, err := b.getFlaskSecretKey()
+	if err != nil {
+		return nil, err
+	}
+	b.AddData(flaskSecretKeyData)
+
+	b.SetName(b.ClusterConfig.EnvSecretName)
 	return b.GetObject(), nil
 }
 
@@ -148,20 +260,17 @@ type SupersetConfigSecretBuilder struct {
 }
 
 func NewSupersetConfigSecretBuilder(
-	client resourceClient.ResourceClient,
+	client *client.Client,
 	clusterConfig *common.ClusterConfig,
+	options builder.Options,
 ) *SupersetConfigSecretBuilder {
 	return &SupersetConfigSecretBuilder{
 		SecretBuilder: *builder.NewSecretBuilder(
 			client,
-			clusterConfig.ConfigSecretName,
+			options,
 		),
 		ClusterConfig: clusterConfig,
 	}
-}
-
-func (b *SupersetConfigSecretBuilder) Build(ctx context.Context) (ctrlclient.Object, error) {
-	return b.GetObject(), nil
 }
 
 func (b *SupersetConfigSecretBuilder) getConfig() string {
@@ -224,11 +333,11 @@ superset init
 
 echo "Creating admin user..."
 superset fab create-admin \
-                --username admin \
-                --firstname Superset \
-                --lastname Admin \
-                --email admin@superset.com \
-                --password admin \
+                --username ${ADMIN_USER} \
+                --firstname ${ADMIN_FIRSTNAME:-Superset} \
+                --lastname ${ADMIN_LASTNAME:-Admin} \
+                --email ${ADMIN_EMAIL:-admin@superset.com} \
+                --password ${ADMIN_PASSWORD} \
                 || true
 
 if [ -f "/app/configs/import_datasources.yaml" ]; then
@@ -250,47 +359,52 @@ if [ ! -f ~/bootstrap ]; then echo "Running Superset with uid 0" > ~/bootstrap; 
 	return util.IndentTab4Spaces(bootstrap)
 }
 
-func (b *SupersetConfigSecretBuilder) BuildConfig(_ context.Context) (ctrlclient.Object, error) {
+func (b *SupersetConfigSecretBuilder) Build(_ context.Context) (ctrlclient.Object, error) {
 	var config = map[string]string{
 		"superset_config.py":    b.getConfig(),
 		"superset_init.sh":      b.getSupersetInit(),
 		"superset_bootstrap.sh": b.getSupersetBootstrap(),
 	}
 	b.AddData(config)
+	b.SetName(b.ClusterConfig.ConfigSecretName)
 	return b.GetObject(), nil
 }
 
 func NewEnvSecretReconciler(
-	client resourceClient.ResourceClient,
+	client *client.Client,
 	clusterConfig *common.ClusterConfig,
+	options builder.Options,
 ) *reconciler.SimpleResourceReconciler[builder.ConfigBuilder] {
 
 	envSecretBuilder := NewEnvSecretBuilder(
 		client,
 		clusterConfig,
+		options,
 	)
 
 	return reconciler.NewSimpleResourceReconciler[builder.ConfigBuilder](
 		client,
-		clusterConfig.ConfigSecretName,
+		options,
 		envSecretBuilder,
 	)
 
 }
 
 func NewSupersetConfigSecretReconciler(
-	client resourceClient.ResourceClient,
+	client *client.Client,
 	clusterConfig *common.ClusterConfig,
+	options builder.Options,
 ) *reconciler.SimpleResourceReconciler[builder.ConfigBuilder] {
 
 	supersetConfigSecretBuilder := NewSupersetConfigSecretBuilder(
 		client,
 		clusterConfig,
+		options,
 	)
 
 	return reconciler.NewSimpleResourceReconciler[builder.ConfigBuilder](
 		client,
-		clusterConfig.ConfigSecretName,
+		options,
 		supersetConfigSecretBuilder,
 	)
 }

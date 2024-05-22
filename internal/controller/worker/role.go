@@ -5,6 +5,7 @@ import (
 
 	supersetv1alpha1 "github.com/zncdatadev/superset-operator/api/v1alpha1"
 	"github.com/zncdatadev/superset-operator/internal/controller/common"
+	"github.com/zncdatadev/superset-operator/pkg/builder"
 	resourceClient "github.com/zncdatadev/superset-operator/pkg/client"
 	"github.com/zncdatadev/superset-operator/pkg/reconciler"
 )
@@ -19,7 +20,7 @@ type Reconciler struct {
 func (r *Reconciler) RegisterResources(ctx context.Context) error {
 	for name, rg := range r.Spec.RoleGroups {
 		mergedRoleGroup := rg.DeepCopy()
-		r.MergeRoleGroupSpec(&mergedRoleGroup)
+		r.MergeRoleGroupSpec(mergedRoleGroup)
 
 		if err := r.RegisterResourceWithRoleGroup(ctx, name, mergedRoleGroup); err != nil {
 			return err
@@ -34,8 +35,8 @@ func (r *Reconciler) RegisterResourceWithRoleGroup(
 	roleGroup *supersetv1alpha1.WorkerRoleGroupSpec,
 ) error {
 
-	roleGroupInfo := &reconciler.RoleGroupInfo{
-		RoleInfo:            *r.RoleInfo,
+	roleGroupOptions := &builder.RoleGroupOptions{
+		RoleOptions:         *r.Options,
 		Name:                name,
 		Replicas:            roleGroup.Replicas,
 		PodDisruptionBudget: roleGroup.PodDisruptionBudget,
@@ -46,17 +47,14 @@ func (r *Reconciler) RegisterResourceWithRoleGroup(
 
 	service := reconciler.NewServiceReconciler(
 		r.Client,
-		roleGroupInfo.GetFullName(),
-		Ports,
+		roleGroupOptions,
 	)
 	r.AddResource(service)
 
 	deployment := NewDeploymentReconciler(
 		r.Client,
 		r.ClusterConfig,
-		roleGroupInfo,
-		Ports,
-		roleGroup,
+		roleGroupOptions,
 	)
 	r.AddResource(deployment)
 
@@ -64,15 +62,15 @@ func (r *Reconciler) RegisterResourceWithRoleGroup(
 }
 
 func NewReconciler(
-	client resourceClient.ResourceClient,
-	roleInfo *reconciler.RoleInfo,
+	client *resourceClient.Client,
 	clusterConfig *common.ClusterConfig,
+	options *builder.RoleOptions,
 	spec *supersetv1alpha1.WorkerSpec,
 ) *Reconciler {
 	return &Reconciler{
 		BaseRoleReconciler: *reconciler.NewBaseRoleReconciler(
 			client,
-			roleInfo,
+			options,
 			spec,
 		),
 		ClusterConfig: clusterConfig,

@@ -36,6 +36,45 @@ spec:
             properties:
               clusterConfig:
                 properties:
+                  administrator:
+                    properties:
+                      email:
+                        default: admin@superset
+                        type: string
+                      existSecret:
+                        description: 'ExistSecret is the name of the secret that contains
+                          the administrator info. It must contain the following keys:
+                          - `ADMIN_USERNAME` - `ADMIN_FIRST_NAME` - `ADMIN_LAST_NAME`
+                          - `ADMIN_EMAIL` - `ADMIN_PASSWORD`'
+                        type: string
+                      firstName:
+                        default: Superset
+                        type: string
+                      lastName:
+                        default: Admin
+                        type: string
+                      password:
+                        default: admin
+                        type: string
+                      username:
+                        default: admin
+                        type: string
+                    type: object
+                  appSecretKey:
+                    description: This is flask app secret key
+                    properties:
+                      existSecret:
+                        description: 'ExistSecret is the name of the secret that contains
+                          the secret key. It must contain the key `SUPERSET_SECRET_KEY`.
+                          Note: To avoid the key name confusions, the key name must
+                          be started with `SUPERSET_`.'
+                        type: string
+                      secretKey:
+                        description: If value is not set, the secret will be generated.
+                          When you migrate the Superset instance, you should keep
+                          the same secret key in the new instance.
+                        type: string
+                    type: object
                   database:
                     properties:
                       inline:
@@ -43,7 +82,7 @@ spec:
                           spec.
                         properties:
                           databaseName:
-                            default: hive
+                            default: superset
                             type: string
                           driver:
                             default: postgres
@@ -54,20 +93,18 @@ spec:
                           host:
                             type: string
                           password:
-                            default: hive
+                            default: superset
                             type: string
                           port:
                             default: 5432
                             format: int32
                             type: integer
                           username:
-                            default: hive
+                            default: superset
                             type: string
                         type: object
                       reference:
                         type: string
-                    required:
-                    - reference
                     type: object
                   listenerClass:
                     type: string
@@ -101,6 +138,7 @@ spec:
                     - host
                     type: object
                 required:
+                - administrator
                 - database
                 - redis
                 type: object
@@ -5403,7 +5441,6 @@ spec:
                 type: object
             required:
             - clusterConfig
-            - clusterOperation
             - node
             - worker
             type: object

@@ -3,9 +3,9 @@ package builder
 import (
 	"context"
 
-	resourceClient "github.com/zncdatadev/superset-operator/pkg/client"
+	"github.com/zncdatadev/superset-operator/pkg/client"
 	corev1 "k8s.io/api/core/v1"
-	"sigs.k8s.io/controller-runtime/pkg/client"
+	ctrlclient "sigs.k8s.io/controller-runtime/pkg/client"
 )
 
 type ConfigBuilder interface {
@@ -27,13 +27,13 @@ type BaseConfigBuilder struct {
 }
 
 func NewBaseConfigBuilder(
-	client resourceClient.ResourceClient,
-	name string,
+	client *client.Client,
+	options Options,
 ) *BaseConfigBuilder {
 	return &BaseConfigBuilder{
 		BaseResourceBuilder: BaseResourceBuilder{
-			Client: client,
-			Name:   name,
+			Client:  client,
+			Options: options,
 		},
 		data: make(map[string]string),
 	}
@@ -82,11 +82,11 @@ type ConfigMapBuilder struct {
 }
 
 func NewConfigMapBuilder(
-	client resourceClient.ResourceClient,
-	name string,
+	client *client.Client,
+	options Options,
 ) *ConfigMapBuilder {
 	return &ConfigMapBuilder{
-		BaseConfigBuilder: *NewBaseConfigBuilder(client, name),
+		BaseConfigBuilder: *NewBaseConfigBuilder(client, options),
 	}
 }
 
@@ -97,7 +97,7 @@ func (b *ConfigMapBuilder) GetObject() *corev1.ConfigMap {
 	}
 }
 
-func (b *ConfigMapBuilder) Build(_ context.Context) (client.Object, error) {
+func (b *ConfigMapBuilder) Build(_ context.Context) (ctrlclient.Object, error) {
 	return b.GetObject(), nil
 }
 
@@ -108,11 +108,11 @@ type SecretBuilder struct {
 var _ ConfigBuilder = &SecretBuilder{}
 
 func NewSecretBuilder(
-	client resourceClient.ResourceClient,
-	name string,
+	client *client.Client,
+	options Options,
 ) *SecretBuilder {
 	return &SecretBuilder{
-		BaseConfigBuilder: *NewBaseConfigBuilder(client, name),
+		BaseConfigBuilder: *NewBaseConfigBuilder(client, options),
 	}
 }
 
@@ -123,6 +123,6 @@ func (b *SecretBuilder) GetObject() *corev1.Secret {
 	}
 }
 
-func (b *SecretBuilder) Build(_ context.Context) (client.Object, error) {
+func (b *SecretBuilder) Build(_ context.Context) (ctrlclient.Object, error) {
 	return b.GetObject(), nil
 }

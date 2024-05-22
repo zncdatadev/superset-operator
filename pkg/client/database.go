@@ -84,7 +84,7 @@ type DatabaseConfiguration struct {
 	DbInline    *DatabaseParams
 	Namespace   string
 	Context     context.Context
-	Client      ResourceClient
+	Client      *Client
 }
 
 func (d *DatabaseConfiguration) GetNamespace() string {

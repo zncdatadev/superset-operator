@@ -6,32 +6,31 @@ import (
 	"github.com/zncdatadev/superset-operator/pkg/builder"
 	"github.com/zncdatadev/superset-operator/pkg/client"
 	appv1 "k8s.io/api/apps/v1"
-	corev1 "k8s.io/api/core/v1"
 )
 
 var _ ResourceReconciler[builder.StatefulSetBuilder] = &StatefulSetReconciler{}
 
 type StatefulSetReconciler struct {
-	GenericResourceReconciler[AnySpec, builder.StatefulSetBuilder]
-	Ports         []corev1.ContainerPort
-	RoleGroupInfo RoleGroupInfo
+	GenericResourceReconciler[builder.StatefulSetBuilder]
+	Options *builder.RoleGroupOptions
 }
 
 // getReplicas returns the number of replicas for the role group.
 // handle cluster operation stopped state.
 func (r *StatefulSetReconciler) getReplicas() *int32 {
-	if r.RoleGroupInfo.ClusterOperation != nil && r.RoleGroupInfo.ClusterOperation.Stopped {
+	clusterOptions := r.Options.GetClusterOperation()
+	if clusterOptions != nil && clusterOptions.Stopped {
 		logger.Info("Cluster operation stopped, set replicas to 0")
 		zero := int32(0)
 		return &zero
 	}
-	return r.RoleGroupInfo.Replicas
+	return nil
 }
 
 func (r *StatefulSetReconciler) Reconcile(ctx context.Context) Result {
-	resource, err := r.GetBuilder().
-		SetReplicas(r.getReplicas()).
-		Build(ctx)
+	resourceBuilder := r.GetBuilder()
+	resourceBuilder.SetReplicas(r.getReplicas())
+	resource, err := resourceBuilder.Build(ctx)
 
 	if err != nil {
 		return NewResult(true, 0, err)
@@ -41,7 +40,7 @@ func (r *StatefulSetReconciler) Reconcile(ctx context.Context) Result {
 
 func (r *StatefulSetReconciler) Ready(ctx context.Context) Result {
 	obj := appv1.StatefulSet{}
-	if err := r.GetClient().Get(ctx, &obj); err != nil {
+	if err := r.Client.Get(ctx, &obj); err != nil {
 		return NewResult(true, 0, err)
 	}
 	if obj.Status.ReadyReplicas == *obj.Spec.Replicas {
@@ -53,19 +52,15 @@ func (r *StatefulSetReconciler) Ready(ctx context.Context) Result {
 }
 
 func NewStatefulSetReconciler(
-	client client.ResourceClient,
-	roleGroupInfo RoleGroupInfo,
-	ports []corev1.ContainerPort,
+	client *client.Client,
+	options *builder.RoleGroupOptions,
 	stsBuilder builder.StatefulSetBuilder,
 ) *StatefulSetReconciler {
 	return &StatefulSetReconciler{
-		GenericResourceReconciler: *NewGenericResourceReconciler[AnySpec, builder.StatefulSetBuilder](
+		GenericResourceReconciler: *NewGenericResourceReconciler[builder.StatefulSetBuilder](
 			client,
-			roleGroupInfo.GetFullName(),
-			nil,
+			options,
 			stsBuilder,
 		),
-		RoleGroupInfo: roleGroupInfo,
-		Ports:         ports,
 	}
 }

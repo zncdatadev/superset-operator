@@ -9,4 +9,26 @@ metadata:
     app.kubernetes.io/created-by: superset-operator
   name: supersetcluster-sample
 spec:
-  # TODO(user): Add fields here
+  image:
+    custom: apache/superset:4.0.1
+  clusterConfig:
+    database:
+      inline:
+        driver: postgres
+        databaseName: superset
+        username: superset
+        password: superset
+        host: 192.168.205.1
+    redis:
+      host: 192.168.205.1
+    administrator:
+      username: admin
+      password: admin
+  node:
+    roleGroups:
+      default:
+        replicas: 1
+  worker:
+    roleGroups:
+      default:
+        replicas: 1

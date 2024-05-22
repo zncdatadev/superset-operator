@@ -7,7 +7,6 @@ import (
 	"github.com/zncdatadev/superset-operator/pkg/builder"
 	"github.com/zncdatadev/superset-operator/pkg/client"
 	"github.com/zncdatadev/superset-operator/pkg/reconciler"
-	"github.com/zncdatadev/superset-operator/pkg/util"
 	corev1 "k8s.io/api/core/v1"
 	k8sclient "sigs.k8s.io/controller-runtime/pkg/client"
 )
@@ -20,16 +19,14 @@ type JobBuilder struct {
 }
 
 func NewJobBuilder(
-	client client.ResourceClient,
-	name string,
-	image util.Image,
+	client *client.Client,
 	clusterConfig *common.ClusterConfig,
+	options builder.Options,
 ) *JobBuilder {
 	return &JobBuilder{
 		GenericJobBuilder: *builder.NewGenericJobBuilder(
 			client,
-			name,
-			image,
+			options,
 		),
 		ClusterConfig: clusterConfig,
 	}
@@ -41,28 +38,34 @@ func (b *JobBuilder) mainContainer() *corev1.Container {
 		MountPath: "/app/pythonpath",
 		ReadOnly:  true,
 	}
-	container := builder.NewGenericContainerBuilder(
+	containerBuilder := builder.NewGenericContainerBuilder(
 		"superset-init",
-		b.Image.String(),
-		b.Image.PullPolicy,
-	).
-		AddVolumeMount(volumeMount).
-		SetCommand([]string{"/bin/sh", "-c", ". /app/pythonpath/superset_bootstrap.sh; . /app/pythonpath/superset_init.sh"}).
-		AddEnvFromSecret(b.ClusterConfig.ConfigSecretName).
-		Build()
-	return container
+		b.Options.GetImage().String(),
+		b.Options.GetImage().PullPolicy,
+	)
+	containerBuilder.AddVolumeMount(volumeMount)
+	// SetCommand([]string{"/bin/sh", "-c", ". /app/pythonpath/superset_bootstrap.sh; . /app/pythonpath/superset_init.sh"})
+	containerBuilder.SetCommand([]string{"tail", "-f"})
+	containerBuilder.AddEnvFromSecret(b.ClusterConfig.ConfigSecretName)
+	containerBuilder.AddEnvFromSecret(b.ClusterConfig.EnvSecretName)
+
+	existAdminSecretName := b.ClusterConfig.Spec.Administrator.ExistSecret
+	if existAdminSecretName != "" {
+		logger.Info("Using existing admin secret", "secret", existAdminSecretName, "namespace", b.Client.GetOwnerNamespace(), "name", b.Options.GetName())
+		containerBuilder.AddEnvFromSecret(existAdminSecretName)
+	}
+	return containerBuilder.Build()
 }
 
 func (b *JobBuilder) initContainer() *corev1.Container {
-	container := builder.NewGenericContainerBuilder(
-		"superset-init",
-		b.Image.String(),
-		b.Image.PullPolicy,
-	).
-		SetCommand([]string{"/bin/sh", "-c", "dockerize -wait \"tcp://$DB_HOST:$DB_PORT\" -timeout 120s"}).
-		AddEnvFromSecret(b.ClusterConfig.ConfigSecretName).
-		Build()
-	return container
+	containerBuilder := builder.NewGenericContainerBuilder(
+		"wait-for-postgres-redis",
+		"apache/superset:dockerize",
+		b.Options.GetImage().PullPolicy,
+	)
+	containerBuilder.SetCommand([]string{"/bin/sh", "-c", "dockerize -wait \"tcp://$DB_HOST:$DB_PORT\" -wait \"tcp://$REDIS_HOST:$REDIS_PORT\" -timeout 120s"})
+	containerBuilder.AddEnvFromSecret(b.ClusterConfig.EnvSecretName)
+	return containerBuilder.Build()
 }
 
 func (b *JobBuilder) GetVolumes() []corev1.Volume {
@@ -78,27 +81,28 @@ func (b *JobBuilder) GetVolumes() []corev1.Volume {
 	}
 }
 
-func (b *JobBuilder) Build(ctx context.Context) (k8sclient.Object, error) {
+func (b *JobBuilder) Build(_ context.Context) (k8sclient.Object, error) {
 	b.AddContainer(*b.mainContainer())
 	b.AddInitContainer(*b.initContainer())
+	b.AddVolumes(b.GetVolumes())
+	b.SetRestPolicy(corev1.RestartPolicyNever)
+	b.SetName(b.Options.GetName() + "-init")
 	return b.GetObject(), nil
 }
 
 func NewJobReconciler(
-	client client.ResourceClient,
-	clusterInfo *reconciler.ClusterInfo,
+	client *client.Client,
 	clusterConfig *common.ClusterConfig,
+	options builder.Options,
 ) *reconciler.SimpleResourceReconciler[builder.JobBuilder] {
-	name := "superset-init"
 	jobBuilder := NewJobBuilder(
 		client,
-		name,
-		clusterInfo.Image,
 		clusterConfig,
+		options,
 	)
 	return reconciler.NewSimpleResourceReconciler[builder.JobBuilder](
 		client,
-		name,
+		options,
 		jobBuilder,
 	)
 }
