@@ -58,14 +58,9 @@ func (r *SupersetClusterReconciler) Reconcile(ctx context.Context, req ctrl.Requ
 		return ctrl.Result{}, err
 	}
 
-	resourceClient := resourceclient.ResourceClient{
+	resourceClient := &resourceclient.Client{
 		Client:         r.Client,
 		OwnerReference: instance,
-		Labels: map[string]string{
-			"app.kubernetes.io/name":       "hbase",
-			"app.kubernetes.io/managed-by": "hbase.zncdata.dev",
-			"app.kubernetes.io/instance":   instance.Name,
-		},
 	}
 
 	clusterRreconciler := cluster.NewReconciler(resourceClient, instance)

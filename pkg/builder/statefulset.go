@@ -3,7 +3,7 @@ package builder
 import (
 	"context"
 
-	resourceClient "github.com/zncdatadev/superset-operator/pkg/client"
+	"github.com/zncdatadev/superset-operator/pkg/client"
 	"github.com/zncdatadev/superset-operator/pkg/util"
 	appv1 "k8s.io/api/apps/v1"
 	corev1 "k8s.io/api/core/v1"
@@ -14,62 +14,80 @@ import (
 type StatefulSetBuilder interface {
 	Builder
 	GetObject() *appv1.StatefulSet
-	SetReplicas(replicas *int32) StatefulSetBuilder
-	AddContainers([]corev1.Container) StatefulSetBuilder
-	AddInitContainers([]corev1.Container) StatefulSetBuilder
-	AddVolumes([]corev1.Volume) StatefulSetBuilder
-	AddVolumeClaimTemplates([]corev1.PersistentVolumeClaim) StatefulSetBuilder
-	AddTerminationGracePeriodSeconds(int64) StatefulSetBuilder
-	AddAffinity(corev1.Affinity) StatefulSetBuilder
+	SetReplicas(replicas *int32)
+	GetReplicas() *int32
+
+	AddContainers(containers []corev1.Container)
+	AddContainer(container corev1.Container)
+	ResetContainers(containers []corev1.Container)
+	GetContainers() []corev1.Container
+
+	AddInitContainers(containers []corev1.Container)
+	AddInitContainer(container corev1.Container)
+	ResetInitContainers(containers []corev1.Container)
+	GetInitContainers() []corev1.Container
+
+	AddVolumes(volumes []corev1.Volume)
+	AddVolume(volume corev1.Volume)
+	ResetVolumes(volumes []corev1.Volume)
+	GetVolumes() []corev1.Volume
+
+	AddVolumeClaimTemplates(claims []corev1.PersistentVolumeClaim)
+	AddVolumeClaimTemplate(claim corev1.PersistentVolumeClaim)
+	ResetVolumeClaimTemplates(claims []corev1.PersistentVolumeClaim)
+	GetVolumeClaimTemplates() []corev1.PersistentVolumeClaim
+
+	AddTerminationGracePeriodSeconds(i int64)
+	GetTerminationGracePeriodSeconds() *int64
+
+	AddAffinity(affinity corev1.Affinity)
+	GetAffinity() *corev1.Affinity
 }
 
 var _ StatefulSetBuilder = &GenericStatefulSetBuilder{}
 
 type GenericStatefulSetBuilder struct {
 	BaseResourceBuilder
-	EnvOverrides     map[string]string
-	CommandOverrides []string
-	Image            util.Image
+	Options *RoleGroupOptions
 
-	obj *appv1.StatefulSet
+	replicas                      *int32
+	initContainers                []corev1.Container
+	containers                    []corev1.Container
+	volumes                       []corev1.Volume
+	volumeClaimTemplates          []corev1.PersistentVolumeClaim
+	terminationGracePeriodSeconds *int64
+	affinity                      *corev1.Affinity
 }
 
 func NewGenericStatefulSetBuilder(
-	client resourceClient.ResourceClient,
-	name string,
-	envOverrides map[string]string,
-	commandOverrides []string,
-	image util.Image,
+	client *client.Client,
+	options *RoleGroupOptions,
 ) *GenericStatefulSetBuilder {
 	return &GenericStatefulSetBuilder{
 		BaseResourceBuilder: BaseResourceBuilder{
-			Client: client,
-			Name:   name,
+			Client:  client,
+			Options: options,
 		},
-		EnvOverrides:     envOverrides,
-		CommandOverrides: commandOverrides,
-		Image:            image,
+		Options: options,
 	}
 }
 
 func (b *GenericStatefulSetBuilder) GetObject() *appv1.StatefulSet {
-	if b.obj == nil {
-		b.obj = &appv1.StatefulSet{
-			ObjectMeta: b.GetObjectMeta(),
-			Spec: appv1.StatefulSetSpec{
-				Selector: &metav1.LabelSelector{
-					MatchLabels: b.Client.GetMatchingLabels(),
-				},
-				Template: corev1.PodTemplateSpec{
-					ObjectMeta: metav1.ObjectMeta{
-						Labels:      b.Client.GetLabels(),
-						Annotations: b.Client.GetAnnotations(),
-					},
+	obj := &appv1.StatefulSet{
+		ObjectMeta: b.GetObjectMeta(),
+		Spec: appv1.StatefulSetSpec{
+			Selector: &metav1.LabelSelector{
+				MatchLabels: b.Options.GetMatchingLabels(),
+			},
+			Template: corev1.PodTemplateSpec{
+				ObjectMeta: metav1.ObjectMeta{
+					Labels:      b.Options.GetLabels(),
+					Annotations: b.Options.GetAnnotations(),
 				},
 			},
-		}
+		},
 	}
-	return b.obj
+	return obj
 }
 
 func (b *GenericStatefulSetBuilder) Build(ctx context.Context) (ctrlclient.Object, error) {
@@ -78,10 +96,10 @@ func (b *GenericStatefulSetBuilder) Build(ctx context.Context) (ctrlclient.Objec
 	if len(obj.Spec.Template.Spec.Containers) == 0 {
 		obj.Spec.Template.Spec.Containers = []corev1.Container{
 			{
-				Name:    b.Name,
-				Image:   b.Image.String(),
-				Env:     util.EnvsToEnvVars(b.EnvOverrides),
-				Command: b.CommandOverrides,
+				Name:    b.Options.Name,
+				Image:   b.Options.GetImage().String(),
+				Env:     util.EnvsToEnvVars(b.Options.EnvOverrides),
+				Command: b.Options.CommandOverrides,
 			},
 		}
 	}
@@ -94,37 +112,90 @@ func (b *GenericStatefulSetBuilder) Build(ctx context.Context) (ctrlclient.Objec
 	return obj, nil
 }
 
-func (b *GenericStatefulSetBuilder) SetReplicas(replicas *int32) StatefulSetBuilder {
-	b.GetObject().Spec.Replicas = replicas
-	return b
+func (b *GenericStatefulSetBuilder) SetReplicas(replicas *int32) {
+	b.replicas = replicas
 }
 
-func (b *GenericStatefulSetBuilder) AddContainers(containers []corev1.Container) StatefulSetBuilder {
-	b.GetObject().Spec.Template.Spec.Containers = containers
-	return b
+func (b *GenericStatefulSetBuilder) GetReplicas() *int32 {
+	return b.replicas
 }
 
-func (b *GenericStatefulSetBuilder) AddInitContainers(containers []corev1.Container) StatefulSetBuilder {
-	b.GetObject().Spec.Template.Spec.InitContainers = containers
-	return b
+func (b *GenericStatefulSetBuilder) AddContainer(container corev1.Container) {
+	b.containers = append(b.containers, container)
 }
 
-func (b *GenericStatefulSetBuilder) AddVolumes(volumes []corev1.Volume) StatefulSetBuilder {
-	b.GetObject().Spec.Template.Spec.Volumes = volumes
-	return b
+func (b *GenericStatefulSetBuilder) ResetContainers(containers []corev1.Container) {
+	b.containers = containers
 }
 
-func (b *GenericStatefulSetBuilder) AddVolumeClaimTemplates(claims []corev1.PersistentVolumeClaim) StatefulSetBuilder {
-	b.GetObject().Spec.VolumeClaimTemplates = claims
-	return b
+func (b *GenericStatefulSetBuilder) AddContainers(containers []corev1.Container) {
+	b.containers = append(b.containers, containers...)
 }
 
-func (b *GenericStatefulSetBuilder) AddTerminationGracePeriodSeconds(i int64) StatefulSetBuilder {
-	b.GetObject().Spec.Template.Spec.TerminationGracePeriodSeconds = &i
-	return b
+func (b *GenericStatefulSetBuilder) GetContainers() []corev1.Container {
+	return b.containers
 }
 
-func (b *GenericStatefulSetBuilder) AddAffinity(affinity corev1.Affinity) StatefulSetBuilder {
-	b.GetObject().Spec.Template.Spec.Affinity = &affinity
-	return b
+func (b *GenericStatefulSetBuilder) AddInitContainer(container corev1.Container) {
+	b.initContainers = append(b.initContainers, container)
+}
+
+func (b *GenericStatefulSetBuilder) AddInitContainers(containers []corev1.Container) {
+	b.initContainers = append(b.initContainers, containers...)
+}
+
+func (b *GenericStatefulSetBuilder) ResetInitContainers(containers []corev1.Container) {
+	b.initContainers = containers
+}
+
+func (b *GenericStatefulSetBuilder) GetInitContainers() []corev1.Container {
+	return b.initContainers
+}
+
+func (b *GenericStatefulSetBuilder) AddVolume(volume corev1.Volume) {
+	b.volumes = append(b.volumes, volume)
+}
+
+func (b *GenericStatefulSetBuilder) AddVolumes(volumes []corev1.Volume) {
+	b.volumes = append(b.volumes, volumes...)
+}
+
+func (b *GenericStatefulSetBuilder) ResetVolumes(volumes []corev1.Volume) {
+	b.volumes = volumes
+}
+
+func (b *GenericStatefulSetBuilder) GetVolumes() []corev1.Volume {
+	return b.volumes
+}
+
+func (b *GenericStatefulSetBuilder) AddVolumeClaimTemplate(claim corev1.PersistentVolumeClaim) {
+	b.volumeClaimTemplates = append(b.volumeClaimTemplates, claim)
+}
+
+func (b *GenericStatefulSetBuilder) AddVolumeClaimTemplates(claims []corev1.PersistentVolumeClaim) {
+	b.volumeClaimTemplates = append(b.volumeClaimTemplates, claims...)
+}
+
+func (b *GenericStatefulSetBuilder) ResetVolumeClaimTemplates(claims []corev1.PersistentVolumeClaim) {
+	b.volumeClaimTemplates = claims
+}
+
+func (b *GenericStatefulSetBuilder) GetVolumeClaimTemplates() []corev1.PersistentVolumeClaim {
+	return b.volumeClaimTemplates
+}
+
+func (b *GenericStatefulSetBuilder) GetTerminationGracePeriodSeconds() *int64 {
+	return b.terminationGracePeriodSeconds
+}
+
+func (b *GenericStatefulSetBuilder) AddTerminationGracePeriodSeconds(i int64) {
+	b.terminationGracePeriodSeconds = &i
+}
+
+func (b *GenericStatefulSetBuilder) AddAffinity(affinity corev1.Affinity) {
+	b.affinity = &affinity
+}
+
+func (b *GenericStatefulSetBuilder) GetAffinity() *corev1.Affinity {
+	return b.affinity
 }

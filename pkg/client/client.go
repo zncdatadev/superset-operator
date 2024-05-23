@@ -10,78 +10,43 @@ import (
 	"k8s.io/apimachinery/pkg/api/errors"
 	apierrors "k8s.io/apimachinery/pkg/api/errors"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
+	"k8s.io/apimachinery/pkg/runtime"
 	ctrl "sigs.k8s.io/controller-runtime"
-	"sigs.k8s.io/controller-runtime/pkg/client"
+	ctrlclient "sigs.k8s.io/controller-runtime/pkg/client"
 )
 
 var (
-	clientLogger        = ctrl.Log.WithName("resourceClient")
-	MatchingLabelsNames = []string{
-		"app.kubernetes.io/name",
-		"app.kubernetes.io/instance",
-		"app.kubernetes.io/role-group",
-		"app.kubernetes.io/component",
-	}
+	clientLogger = ctrl.Log.WithName("resourceClient")
 )
 
-type ResourceClient struct {
-	Client client.Client
+type Client struct {
+	Client ctrlclient.Client
 
-	OwnerReference client.Object
-
-	Labels      map[string]string
-	Annotations map[string]string
+	OwnerReference ctrlclient.Object
 }
 
-func (c *ResourceClient) AddLabels(labels map[string]string, override bool) {
-	for k, v := range labels {
-		if _, ok := c.Labels[k]; !ok || override {
-			c.Labels[k] = v
-		}
-	}
+func (c *Client) GetCtrlClient() ctrlclient.Client {
+	return c.Client
 }
 
-func (c *ResourceClient) GetMatchingLabels() map[string]string {
-
-	matchingLabels := make(map[string]string)
-	for _, label := range MatchingLabelsNames {
-		if value, ok := c.Labels[label]; ok {
-			matchingLabels[label] = value
-		}
-	}
-	return matchingLabels
+func (c *Client) GetCtrlScheme() *runtime.Scheme {
+	return c.Client.Scheme()
 }
 
-func (c *ResourceClient) AddAnnotations(annotations map[string]string, override bool) {
-	for k, v := range annotations {
-		if _, ok := c.Annotations[k]; !ok || override {
-			c.Annotations[k] = v
-		}
-	}
-}
-
-func (c *ResourceClient) GetLabels() map[string]string {
-	return c.Labels
-}
-
-func (c *ResourceClient) GetAnnotations() map[string]string {
-	return c.Annotations
-}
-
-func (c *ResourceClient) GetOwnerReference() client.Object {
+func (c *Client) GetOwnerReference() ctrlclient.Object {
 	return c.OwnerReference
 }
-func (c *ResourceClient) GetOwnerNamespace() string {
+func (c *Client) GetOwnerNamespace() string {
 	return c.OwnerReference.GetNamespace()
 }
 
-func (c *ResourceClient) GetOwnerName() string {
+func (c *Client) GetOwnerName() string {
 	return c.OwnerReference.GetName()
 }
 
 // Get the object from the cluster
 // If the object has no namespace, it will use the owner namespace
-func (c *ResourceClient) Get(ctx context.Context, obj client.Object) error {
+func (c *Client) Get(ctx context.Context, obj ctrlclient.Object) error {
 	name := obj.GetName()
 	namespace := obj.GetNamespace()
 	if namespace == "" {
@@ -93,7 +58,7 @@ func (c *ResourceClient) Get(ctx context.Context, obj client.Object) error {
 		)
 	}
 	kind := obj.GetObjectKind()
-	if err := c.Client.Get(ctx, client.ObjectKey{Namespace: namespace, Name: name}, obj); err != nil {
+	if err := c.Client.Get(ctx, ctrlclient.ObjectKey{Namespace: namespace, Name: name}, obj); err != nil {
 		opt := []any{"ns", namespace, "name", name, "kind", kind}
 		if apierrors.IsNotFound(err) {
 			clientLogger.V(0).Info("Fetch resource NotFound", opt...)
@@ -105,16 +70,16 @@ func (c *ResourceClient) Get(ctx context.Context, obj client.Object) error {
 	return nil
 }
 
-func (c *ResourceClient) CreateOrUpdate(ctx context.Context, obj client.Object) (mutation bool, err error) {
+func (c *Client) CreateOrUpdate(ctx context.Context, obj ctrlclient.Object) (mutation bool, err error) {
 
-	key := client.ObjectKeyFromObject(obj)
+	key := ctrlclient.ObjectKeyFromObject(obj)
 	namespace := obj.GetNamespace()
 	kinds, _, _ := c.Client.Scheme().ObjectKinds(obj)
 	name := obj.GetName()
 
 	clientLogger.V(5).Info("Creating or updating object", "Kind", kinds, "Namespace", namespace, "Name", name)
 
-	current := obj.DeepCopyObject().(client.Object)
+	current := obj.DeepCopyObject().(ctrlclient.Object)
 	// Check if the object exists, if not create a new one
 	err = c.Client.Get(ctx, key, current)
 	var calculateOpt = []patch.CalculateOption{

@@ -5,9 +5,8 @@ import (
 	"reflect"
 
 	apiv1alpha1 "github.com/zncdatadev/superset-operator/pkg/apis/v1alpha1"
+	"github.com/zncdatadev/superset-operator/pkg/builder"
 	"github.com/zncdatadev/superset-operator/pkg/client"
-	"github.com/zncdatadev/superset-operator/pkg/util"
-	corev1 "k8s.io/api/core/v1"
 	ctrl "sigs.k8s.io/controller-runtime"
 )
 
@@ -18,7 +17,6 @@ var (
 type ClusterReconciler interface {
 	Reconciler
 	GetClusterOperation() *apiv1alpha1.ClusterOperationSpec
-	GetImage() util.Image
 	GetResources() []Reconciler
 	AddResource(resource Reconciler)
 	RegisterResources(ctx context.Context) error
@@ -26,22 +24,20 @@ type ClusterReconciler interface {
 
 type BaseClusterReconciler[T AnySpec] struct {
 	BaseReconciler[T]
-	ClusterInfo *ClusterInfo
-	resources   []Reconciler
+	resources []Reconciler
 }
 
 func NewBaseClusterReconciler[T AnySpec](
-	client client.ResourceClient,
-	clusterInfo *ClusterInfo,
+	client *client.Client,
+	options builder.Options,
 	spec T,
 ) *BaseClusterReconciler[T] {
 	return &BaseClusterReconciler[T]{
 		BaseReconciler: BaseReconciler[T]{
-			Client: client,
-			Name:   clusterInfo.Name,
-			Spec:   spec,
+			Client:  client,
+			Options: options,
+			Spec:    spec,
 		},
-		ClusterInfo: clusterInfo,
 	}
 }
 
@@ -84,8 +80,7 @@ var _ RoleReconciler = &BaseRoleReconciler[AnySpec]{}
 
 type BaseRoleReconciler[T AnySpec] struct {
 	BaseClusterReconciler[T]
-
-	RoleInfo *RoleInfo
+	Options *builder.RoleOptions
 }
 
 // MergeRoleGroupSpec
@@ -124,11 +119,7 @@ func (b *BaseRoleReconciler[T]) MergeRoleGroupSpec(roleGroup any) {
 }
 
 func (b *BaseRoleReconciler[T]) GetClusterOperation() *apiv1alpha1.ClusterOperationSpec {
-	return b.RoleInfo.ClusterInfo.ClusterOperation
-}
-
-func (b *BaseRoleReconciler[T]) GetImage() util.Image {
-	return b.RoleInfo.ClusterInfo.Image
+	return b.Options.GetClusterOperation()
 }
 
 func (b *BaseRoleReconciler[T]) Ready(ctx context.Context) Result {
@@ -141,55 +132,17 @@ func (b *BaseRoleReconciler[T]) Ready(ctx context.Context) Result {
 }
 
 func NewBaseRoleReconciler[T AnySpec](
-	client client.ResourceClient,
-	roleInfo *RoleInfo,
+	client *client.Client,
+	roleOptions *builder.RoleOptions,
 	spec T,
 ) *BaseRoleReconciler[T] {
-
-	client.AddLabels(
-		map[string]string{
-			"app.kubernetes.io/component": roleInfo.Name,
-		},
-		false,
-	)
 
 	return &BaseRoleReconciler[T]{
 		BaseClusterReconciler: *NewBaseClusterReconciler[T](
 			client,
-			&roleInfo.ClusterInfo,
+			roleOptions,
 			spec,
 		),
-		RoleInfo: roleInfo,
+		Options: roleOptions,
 	}
-}
-
-type ClusterInfo struct {
-	Name             string
-	Namespace        string
-	ClusterOperation *apiv1alpha1.ClusterOperationSpec
-	Image            util.Image
-}
-
-type RoleInfo struct {
-	ClusterInfo
-	Name string
-}
-
-func (r *RoleInfo) GetFullName() string {
-	return r.ClusterInfo.Name + "-" + r.Name
-}
-
-type RoleGroupInfo struct {
-	RoleInfo
-	Name     string
-	Replicas *int32
-
-	PodDisruptionBudget *apiv1alpha1.PodDisruptionBudgetSpec
-	CommandOverrides    []string
-	EnvOverrides        map[string]string
-	PodOverrides        *corev1.PodTemplateSpec
-}
-
-func (r *RoleGroupInfo) GetFullName() string {
-	return r.RoleInfo.GetFullName() + "-" + r.Name
 }

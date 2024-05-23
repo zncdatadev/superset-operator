@@ -4,7 +4,6 @@ import (
 	"context"
 
 	resourceClient "github.com/zncdatadev/superset-operator/pkg/client"
-	"github.com/zncdatadev/superset-operator/pkg/util"
 	batchv1 "k8s.io/api/batch/v1"
 	corev1 "k8s.io/api/core/v1"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
@@ -14,121 +13,120 @@ import (
 type JobBuilder interface {
 	Builder
 	GetObject() *batchv1.Job
-	AddContainers([]corev1.Container) JobBuilder
-	AddContainer(corev1.Container) JobBuilder
-	ResetContainers([]corev1.Container) JobBuilder
+
+	AddContainers([]corev1.Container)
+	AddContainer(corev1.Container)
+	ResetContainers([]corev1.Container)
 	GetContainers() []corev1.Container
-	AddInitContainers([]corev1.Container) JobBuilder
-	AddInitContainer(corev1.Container) JobBuilder
-	ResetInitContainers([]corev1.Container) JobBuilder
+
+	AddInitContainers([]corev1.Container)
+	AddInitContainer(corev1.Container)
+	ResetInitContainers([]corev1.Container)
 	GetInitContainers() []corev1.Container
-	AddVolumes([]corev1.Volume) JobBuilder
-	AddVolume(corev1.Volume) JobBuilder
-	ResetVolumes([]corev1.Volume) JobBuilder
+
+	AddVolumes([]corev1.Volume)
+	AddVolume(corev1.Volume)
+	ResetVolumes([]corev1.Volume)
 	GetVolumes() []corev1.Volume
+
+	SetRestPolicy(corev1.RestartPolicy)
 }
 
 type GenericJobBuilder struct {
 	BaseResourceBuilder
-	Image util.Image
 
-	obj *batchv1.Job
+	containers     []corev1.Container
+	initContainers []corev1.Container
+	volumes        []corev1.Volume
+	resetPolicy    corev1.RestartPolicy
 }
 
 func NewGenericJobBuilder(
-	client resourceClient.ResourceClient,
-	name string,
-	image util.Image,
+	client *resourceClient.Client,
+	options Options,
 ) *GenericJobBuilder {
 	return &GenericJobBuilder{
 		BaseResourceBuilder: BaseResourceBuilder{
-			Client: client,
-			Name:   name,
+			Client:  client,
+			Options: options,
 		},
-		Image: image,
 	}
 }
 
 func (b *GenericJobBuilder) GetObject() *batchv1.Job {
-	if b.obj == nil {
-		b.obj = &batchv1.Job{
-			ObjectMeta: b.GetObjectMeta(),
-			Spec: batchv1.JobSpec{
-				Selector: &metav1.LabelSelector{
-					MatchLabels: b.Client.GetLabels(),
+	obj := &batchv1.Job{
+		ObjectMeta: b.GetObjectMeta(),
+		Spec: batchv1.JobSpec{
+			Template: corev1.PodTemplateSpec{
+				ObjectMeta: metav1.ObjectMeta{
+					Labels: b.Options.GetLabels(),
 				},
-				Template: corev1.PodTemplateSpec{
-					ObjectMeta: metav1.ObjectMeta{
-						Labels:      b.Client.GetLabels(),
-						Annotations: b.Client.GetAnnotations(),
-					},
+				Spec: corev1.PodSpec{
+					InitContainers: b.initContainers,
+					Containers:     b.containers,
+					Volumes:        b.volumes,
+					RestartPolicy:  b.resetPolicy,
 				},
 			},
-		}
+		},
 	}
-	return b.obj
+	return obj
 }
 
-func (b *GenericJobBuilder) AddContainers(containers []corev1.Container) JobBuilder {
-	c := b.GetObject().Spec.Template.Spec.Containers
-	c = append(c, containers...)
-	b.GetObject().Spec.Template.Spec.Containers = c
-	return b
+func (b *GenericJobBuilder) AddContainers(containers []corev1.Container) {
+	b.containers = append(b.containers, containers...)
 }
 
-func (b *GenericJobBuilder) AddContainer(container corev1.Container) JobBuilder {
-	return b.AddContainers([]corev1.Container{container})
+func (b *GenericJobBuilder) AddContainer(container corev1.Container) {
+	b.AddContainers([]corev1.Container{container})
 }
 
-func (b *GenericJobBuilder) ResetContainers(containers []corev1.Container) JobBuilder {
-	b.GetObject().Spec.Template.Spec.Containers = containers
-	return b
+func (b *GenericJobBuilder) ResetContainers(containers []corev1.Container) {
+	b.containers = containers
 }
 
 func (b *GenericJobBuilder) GetContainers() []corev1.Container {
-	return b.GetObject().Spec.Template.Spec.Containers
+	return b.containers
 }
 
-func (b *GenericJobBuilder) AddInitContainers(containers []corev1.Container) JobBuilder {
-	c := b.GetObject().Spec.Template.Spec.InitContainers
-	c = append(c, containers...)
-	b.GetObject().Spec.Template.Spec.InitContainers = c
-	return b
+func (b *GenericJobBuilder) AddInitContainers(containers []corev1.Container) {
+	b.initContainers = append(b.initContainers, containers...)
+
 }
 
-func (b *GenericJobBuilder) AddInitContainer(container corev1.Container) JobBuilder {
-	return b.AddInitContainers([]corev1.Container{container})
+func (b *GenericJobBuilder) AddInitContainer(container corev1.Container) {
+	b.AddInitContainers([]corev1.Container{container})
 }
 
-func (b *GenericJobBuilder) ResetInitContainers(containers []corev1.Container) JobBuilder {
-	b.GetObject().Spec.Template.Spec.InitContainers = containers
-	return b
+func (b *GenericJobBuilder) ResetInitContainers(containers []corev1.Container) {
+	b.initContainers = containers
 }
 
 func (b *GenericJobBuilder) GetInitContainers() []corev1.Container {
-	return b.GetObject().Spec.Template.Spec.InitContainers
+	return b.initContainers
 }
 
-func (b *GenericJobBuilder) AddVolumes(volumes []corev1.Volume) JobBuilder {
-	v := b.GetObject().Spec.Template.Spec.Volumes
-	v = append(v, volumes...)
-	b.GetObject().Spec.Template.Spec.Volumes = v
-	return b
+func (b *GenericJobBuilder) AddVolumes(volumes []corev1.Volume) {
+	b.volumes = append(b.volumes, volumes...)
+
 }
 
-func (b *GenericJobBuilder) AddVolume(volume corev1.Volume) JobBuilder {
-	return b.AddVolumes([]corev1.Volume{volume})
+func (b *GenericJobBuilder) AddVolume(volume corev1.Volume) {
+	b.AddVolumes([]corev1.Volume{volume})
 }
 
-func (b *GenericJobBuilder) ResetVolumes(volumes []corev1.Volume) JobBuilder {
-	b.GetObject().Spec.Template.Spec.Volumes = volumes
-	return b
+func (b *GenericJobBuilder) ResetVolumes(volumes []corev1.Volume) {
+	b.volumes = volumes
 }
 
 func (b *GenericJobBuilder) GetVolumes() []corev1.Volume {
-	return b.GetObject().Spec.Template.Spec.Volumes
+	return b.volumes
 }
 
-func (b *GenericJobBuilder) Build(ctx context.Context) (ctrlclient.Object, error) {
+func (b *GenericJobBuilder) SetRestPolicy(policy corev1.RestartPolicy) {
+	b.resetPolicy = policy
+}
+
+func (b *GenericJobBuilder) Build(_ context.Context) (ctrlclient.Object, error) {
 	return b.GetObject(), nil
 }

@@ -1,33 +1,26 @@
 package node
 
 import (
-	supersetv1alpha1 "github.com/zncdatadev/superset-operator/api/v1alpha1"
 	"github.com/zncdatadev/superset-operator/internal/controller/common"
-	resourceClient "github.com/zncdatadev/superset-operator/pkg/client"
+	"github.com/zncdatadev/superset-operator/pkg/builder"
+	"github.com/zncdatadev/superset-operator/pkg/client"
 	"github.com/zncdatadev/superset-operator/pkg/reconciler"
-	corev1 "k8s.io/api/core/v1"
 )
 
 func NewDeploymentReconciler(
-	client resourceClient.ResourceClient,
+	client *client.Client,
 	clusterConfig *common.ClusterConfig,
-	roleGroupInfo *reconciler.RoleGroupInfo,
-	ports []corev1.ContainerPort,
-	spec *supersetv1alpha1.NodeRoleGroupSpec,
+	options *builder.RoleGroupOptions,
 ) *reconciler.DeploymentReconciler {
 	deploymentBuilder := common.NewDeploymentBuilder(
 		client,
 		clusterConfig,
-		roleGroupInfo,
-		ports,
-		spec.EnvOverrides,
-		spec.CommandOverrides,
+		options,
 	)
 
 	return reconciler.NewDeploymentReconciler(
 		client,
-		roleGroupInfo,
-		ports,
+		options,
 		deploymentBuilder,
 	)
 }

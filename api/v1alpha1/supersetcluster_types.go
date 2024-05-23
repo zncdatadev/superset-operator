@@ -25,7 +25,7 @@ import (
 type SupersetClusterSpec struct {
 	Image            *ImageSpec                        `json:"image,omitempty"`
 	ClusterConfig    *ClusterConfigSpec                `json:"clusterConfig"`
-	ClusterOperation *apiv1alpha1.ClusterOperationSpec `json:"clusterOperation"`
+	ClusterOperation *apiv1alpha1.ClusterOperationSpec `json:"clusterOperation,omitempty"`
 	Node             *NodeSpec                         `json:"node"`
 	Worker           *WorkerSpec                       `json:"worker"`
 }
