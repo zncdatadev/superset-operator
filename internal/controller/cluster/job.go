@@ -46,7 +46,6 @@ func (b *JobBuilder) mainContainer() *corev1.Container {
 	containerBuilder.AddVolumeMount(volumeMount)
 	// SetCommand([]string{"/bin/sh", "-c", ". /app/pythonpath/superset_bootstrap.sh; . /app/pythonpath/superset_init.sh"})
 	containerBuilder.SetCommand([]string{"tail", "-f"})
-	containerBuilder.AddEnvFromSecret(b.ClusterConfig.ConfigSecretName)
 	containerBuilder.AddEnvFromSecret(b.ClusterConfig.EnvSecretName)
 
 	existAdminSecretName := b.ClusterConfig.Spec.Administrator.ExistSecret

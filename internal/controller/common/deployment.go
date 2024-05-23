@@ -38,7 +38,7 @@ func (b *DeploymentBuilder) GetMainContainer() builder.ContainerBuilder {
 	)
 	containerBuilder.AddEnvFromSecret(b.ClusterConfig.EnvSecretName)
 	containerBuilder.SetCommand([]string{"/bin/sh", "-c", ". /app/pythonpath/superset_bootstrap.sh; /usr/bin/run-server.sh"})
-	containerBuilder.AddVolumeMount(corev1.VolumeMount{Name: "superset-config", MountPath: "/app/superset", ReadOnly: true})
+	containerBuilder.AddVolumeMount(corev1.VolumeMount{Name: "superset-config", MountPath: "/app/pythonpath", ReadOnly: true})
 	containerBuilder.AddPorts(b.Options.GetPorts())
 	containerBuilder.SetProbeWithHealth()
 	return containerBuilder
@@ -47,7 +47,7 @@ func (b *DeploymentBuilder) GetMainContainer() builder.ContainerBuilder {
 func (b *DeploymentBuilder) GetInitContainer() builder.ContainerBuilder {
 	containerBuilder := builder.NewGenericContainerBuilder(
 		"wait-for-postgres-redis",
-		b.Options.GetImage().String(),
+		"apache/superset:dockerize",
 		b.Options.GetImage().PullPolicy,
 	)
 	containerBuilder.SetCommand([]string{"/bin/sh", "-c", "dockerize -wait \"tcp://$DB_HOST:$DB_PORT\" -wait \"tcp://$REDIS_HOST:$REDIS_PORT\" -timeout 120s"})
@@ -60,7 +60,7 @@ func (b *DeploymentBuilder) GetVolume() *corev1.Volume {
 		Name: "superset-config",
 		VolumeSource: corev1.VolumeSource{
 			Secret: &corev1.SecretVolumeSource{
-				SecretName: b.ClusterConfig.EnvSecretName,
+				SecretName: b.ClusterConfig.ConfigSecretName,
 			},
 		},
 	}

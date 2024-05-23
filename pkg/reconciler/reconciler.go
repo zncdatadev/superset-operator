@@ -12,6 +12,8 @@ import (
 type AnySpec any
 
 type Reconciler interface {
+	GetName() string
+	GetNamespace() string
 	GetClient() *client.Client
 	GetCtrlClient() ctrlclient.Client
 	GetCtrlScheme() *runtime.Scheme
@@ -34,6 +36,10 @@ func (b *BaseReconciler[T]) GetClient() *client.Client {
 
 func (b *BaseReconciler[T]) GetName() string {
 	return b.Options.GetFullName()
+}
+
+func (b *BaseReconciler[T]) GetNamespace() string {
+	return b.Options.GetNamespace()
 }
 
 func (b *BaseReconciler[T]) GetCtrlClient() ctrlclient.Client {

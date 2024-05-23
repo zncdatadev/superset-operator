@@ -69,6 +69,7 @@ func (b *GenericDeploymentBuilder) GetObject() *appv1.Deployment {
 		b.replicas = &DefaultReplicas
 	}
 	obj := &appv1.Deployment{
+		ObjectMeta: b.GetObjectMeta(),
 		Spec: appv1.DeploymentSpec{
 			Replicas: b.replicas,
 			Selector: &metav1.LabelSelector{

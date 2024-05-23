@@ -16,7 +16,9 @@ var (
 )
 
 type Options interface {
+	GetClusterName() string
 	GetName() string
+	GetNamespace() string
 	GetFullName() string
 	GetLabels() map[string]string
 	AddLabels(labels map[string]string)
@@ -41,8 +43,16 @@ type ClusterOptions struct {
 	Ports            []corev1.ContainerPort
 }
 
+func (o *ClusterOptions) GetClusterName() string {
+	return o.Name
+}
+
 func (o *ClusterOptions) GetName() string {
 	return o.Name
+}
+
+func (o *ClusterOptions) GetNamespace() string {
+	return o.Namespace
 }
 
 func (o *ClusterOptions) GetFullName() string {

@@ -39,15 +39,18 @@ func (r *StatefulSetReconciler) Reconcile(ctx context.Context) Result {
 }
 
 func (r *StatefulSetReconciler) Ready(ctx context.Context) Result {
-	obj := appv1.StatefulSet{}
+	obj := appv1.StatefulSet{
+		ObjectMeta: r.GetObjectMeta(),
+	}
+	logger.V(1).Info("Checking statefulset ready", "namespace", obj.Namespace, "name", obj.Name)
 	if err := r.Client.Get(ctx, &obj); err != nil {
 		return NewResult(true, 0, err)
 	}
 	if obj.Status.ReadyReplicas == *obj.Spec.Replicas {
-		logger.V(1).Info("StatefulSet is ready", "namespace", obj.Namespace, "name", obj.Name)
+		logger.Info("StatefulSet is ready", "namespace", obj.Namespace, "name", obj.Name, "replicas", *obj.Spec.Replicas, "readyReplicas", obj.Status.ReadyReplicas)
 		return NewResult(false, 0, nil)
 	}
-	logger.V(1).Info("StatefulSet is not ready", "namespace", obj.Namespace, "name", obj.Name)
+	logger.Info("StatefulSet is not ready", "namespace", obj.Namespace, "name", obj.Name, "replicas", *obj.Spec.Replicas, "readyReplicas", obj.Status.ReadyReplicas)
 	return NewResult(false, 5, nil)
 }
 

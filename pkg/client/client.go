@@ -7,16 +7,17 @@ import (
 	"github.com/cisco-open/k8s-objectmatcher/patch"
 	appsv1 "k8s.io/api/apps/v1"
 	corev1 "k8s.io/api/core/v1"
-	"k8s.io/apimachinery/pkg/api/errors"
 	apierrors "k8s.io/apimachinery/pkg/api/errors"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 	"k8s.io/apimachinery/pkg/runtime"
+	"k8s.io/apimachinery/pkg/runtime/schema"
+	"k8s.io/client-go/kubernetes/scheme"
 	ctrl "sigs.k8s.io/controller-runtime"
 	ctrlclient "sigs.k8s.io/controller-runtime/pkg/client"
 )
 
 var (
-	clientLogger = ctrl.Log.WithName("resourceClient")
+	clientLogger = ctrl.Log.WithName("client")
 )
 
 type Client struct {
@@ -70,30 +71,68 @@ func (c *Client) Get(ctx context.Context, obj ctrlclient.Object) error {
 	return nil
 }
 
+func (c *Client) SetOwnerReference(obj ctrlclient.Object, gvk *schema.GroupVersionKind) error {
+
+	if obj.GetNamespace() == "" {
+		clientLogger.V(5).Info("Skip setting owner reference for object without namespace, it maybe a cluster-scoped resource",
+			"gvk", gvk,
+			"name", obj.GetName(),
+		)
+		return nil
+	}
+	if err := ctrl.SetControllerReference(c.OwnerReference, obj, c.Client.Scheme()); err != nil {
+		clientLogger.Error(err, "Failed to set owner reference",
+			"gvk", gvk,
+			"namespace", obj.GetNamespace(),
+			"name", obj.GetName(),
+		)
+		return err
+	}
+
+	clientLogger.V(5).Info("Set owner reference for object",
+		"gvk", gvk, "namespace",
+		obj.GetNamespace(),
+		"name", obj.GetName(),
+		"owner", c.OwnerReference.GetName(),
+	)
+
+	return nil
+}
+
 func (c *Client) CreateOrUpdate(ctx context.Context, obj ctrlclient.Object) (mutation bool, err error) {
 
-	key := ctrlclient.ObjectKeyFromObject(obj)
+	objectKey := ctrlclient.ObjectKeyFromObject(obj)
 	namespace := obj.GetNamespace()
-	kinds, _, _ := c.Client.Scheme().ObjectKinds(obj)
+
+	gvk, err := GetObjectGVK(obj)
+	if err != nil {
+		return false, err
+	}
+
 	name := obj.GetName()
 
-	clientLogger.V(5).Info("Creating or updating object", "Kind", kinds, "Namespace", namespace, "Name", name)
+	if err := c.SetOwnerReference(obj, gvk); err != nil {
+		return false, err
+	}
+
+	clientLogger.V(5).Info("Creating or updating object", "gvk", gvk, "namespace", namespace, "name", name)
 
 	current := obj.DeepCopyObject().(ctrlclient.Object)
 	// Check if the object exists, if not create a new one
-	err = c.Client.Get(ctx, key, current)
+	err = c.Client.Get(ctx, objectKey, current)
 	var calculateOpt = []patch.CalculateOption{
 		patch.IgnoreStatusFields(),
 	}
-	if errors.IsNotFound(err) {
+	if apierrors.IsNotFound(err) {
+		clientLogger.V(1).Info("Resource not found, creating a new.", "gvk", gvk, "namespace", namespace, "name", name)
 		if err := patch.DefaultAnnotator.SetLastAppliedAnnotation(obj); err != nil {
 			return false, err
 		}
-		clientLogger.Info("Creating a new object", "Kind", kinds, "Namespace", namespace, "Name", name)
-
 		if err := c.Client.Create(ctx, obj); err != nil {
+			clientLogger.Error(err, "Failed to create resource", "gvk", gvk, "namespace", namespace, "name", name)
 			return false, err
 		}
+		clientLogger.V(5).Info("Resource created", "gvk", gvk, "namespace", namespace, "name", name)
 		return true, nil
 	} else if err == nil {
 		switch obj.(type) {
@@ -117,39 +156,58 @@ func (c *Client) CreateOrUpdate(ctx context.Context, obj ctrlclient.Object) (mut
 		case *appsv1.StatefulSet:
 			calculateOpt = append(calculateOpt, patch.IgnoreVolumeClaimTemplateTypeMetaAndStatus())
 		}
+
 		result, err := patch.DefaultPatchMaker.Calculate(current, obj, calculateOpt...)
 		if err != nil {
-			clientLogger.Error(err, "failed to calculate patch to match objects, moving on to update")
+			clientLogger.Error(err, "Failed to calculate patch to match objects, moving to update", "gvk", gvk, "namespace", namespace, "name", name)
 			// if there is an error with matching, we still want to update
 			resourceVersion := current.(metav1.ObjectMetaAccessor).GetObjectMeta().GetResourceVersion()
 			obj.(metav1.ObjectMetaAccessor).GetObjectMeta().SetResourceVersion(resourceVersion)
 
 			if err := c.Client.Update(ctx, obj); err != nil {
+				clientLogger.Error(err, "Failed to update resource", "gvk", gvk, "namespace", namespace, "name", name)
 				return false, err
 			}
+			clientLogger.V(5).Info("Resource updated", "gvk", gvk, "namespace", namespace, "name", name)
 			return true, nil
 		}
 
 		if !result.IsEmpty() {
-			clientLogger.Info(
-				fmt.Sprintf("Resource update for object %s:%s", kinds, obj.(metav1.ObjectMetaAccessor).GetObjectMeta().GetName()),
-				"patch", string(result.Patch),
-			)
+			clientLogger.V(1).Info("Resource modified, updating", "gvk", gvk, "namespace", namespace, "name", name)
+			// ignore the update if the object is a secret
+			if _, ok := obj.(*corev1.Secret); !ok {
+				clientLogger.V(1).Info("Patch result", "gvk", gvk, "namespace", namespace, "name", name, "patch", string(result.Patch))
+			}
 
 			if err := patch.DefaultAnnotator.SetLastAppliedAnnotation(obj); err != nil {
-				clientLogger.Error(err, "failed to annotate modified object", "object", obj)
+				clientLogger.Error(err, "Failed to update object annotation, moving to update", "gvk", gvk, "namespace", namespace, "name", name)
 			}
 
 			resourceVersion := current.(metav1.ObjectMetaAccessor).GetObjectMeta().GetResourceVersion()
 			obj.(metav1.ObjectMetaAccessor).GetObjectMeta().SetResourceVersion(resourceVersion)
 
 			if err = c.Client.Update(ctx, obj); err != nil {
+				clientLogger.Error(err, "Failed to update resource", "gvk", gvk, "namespace", namespace, "name", name)
 				return false, err
 			}
 			return true, nil
 		}
-		clientLogger.V(1).Info(fmt.Sprintf("Skipping update for object %s:%s", kinds, obj.(metav1.ObjectMetaAccessor).GetObjectMeta().GetName()))
-
+		clientLogger.V(1).Info("Skipping update for object", "gvk", gvk, "namespace", namespace, "name", name)
 	}
 	return false, err
+}
+
+func GetObjectGVK(obj ctrlclient.Object) (*schema.GroupVersionKind, error) {
+	gvks, _, err := scheme.Scheme.ObjectKinds(obj)
+	if err != nil {
+		return nil, err
+	}
+
+	if len(gvks) == 0 {
+		return nil, fmt.Errorf("no GroupVersionKind found for object %T", obj)
+	}
+
+	gvk := gvks[0]
+
+	return &gvk, nil
 }

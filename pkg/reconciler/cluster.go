@@ -11,7 +11,7 @@ import (
 )
 
 var (
-	logger = ctrl.Log.WithName("common").WithName("reconciler")
+	logger = ctrl.Log.WithName("reconciler")
 )
 
 type ClusterReconciler interface {
