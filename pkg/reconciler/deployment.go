@@ -42,15 +42,19 @@ func (r *DeploymentReconciler) Reconcile(ctx context.Context) Result {
 }
 
 func (r *DeploymentReconciler) Ready(ctx context.Context) Result {
-	obj := appv1.Deployment{}
+
+	obj := appv1.Deployment{
+		ObjectMeta: r.GetObjectMeta(),
+	}
+	logger.V(1).Info("Checking deployment ready", "namespace", obj.Namespace, "name", obj.Name)
 	if err := r.Client.Get(ctx, &obj); err != nil {
 		return NewResult(true, 0, err)
 	}
 	if obj.Status.ReadyReplicas == *obj.Spec.Replicas {
-		logger.V(1).Info("Deployment is ready", "namespace", obj.Namespace, "name", obj.Name)
+		logger.Info("Deployment is ready", "namespace", obj.Namespace, "name", obj.Name, "replicas", *obj.Spec.Replicas, "readyReplicas", obj.Status.ReadyReplicas)
 		return NewResult(false, 0, nil)
 	}
-	logger.V(1).Info("Deployment is not ready", "namespace", obj.Namespace, "name", obj.Name)
+	logger.Info("Deployment is not ready", "namespace", obj.Namespace, "name", obj.Name, "replicas", *obj.Spec.Replicas, "readyReplicas", obj.Status.ReadyReplicas)
 	return NewResult(false, 5, nil)
 }
 
@@ -65,5 +69,6 @@ func NewDeploymentReconciler(
 			options,
 			deployBuilder,
 		),
+		Options: options,
 	}
 }

@@ -44,6 +44,7 @@ func (r *Reconciler) RegisterResourceWithRoleGroup(
 		EnvOverrides:        roleGroup.EnvOverrides,
 		//PodOverrides:        roleGroup.PodOverrides,	TODO: Uncomment this line
 	}
+	roleGroupOptions.SetPorts(Ports)
 
 	service := reconciler.NewServiceReconciler(
 		r.Client,

@@ -6,12 +6,18 @@ import (
 
 	"github.com/zncdatadev/superset-operator/pkg/builder"
 	"github.com/zncdatadev/superset-operator/pkg/client"
+	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 	ctrl "sigs.k8s.io/controller-runtime"
 	ctrlclient "sigs.k8s.io/controller-runtime/pkg/client"
 )
 
+var (
+	resourceLogger = ctrl.Log.WithName("reconciler").WithName("resource")
+)
+
 type ResourceReconciler[B builder.Builder] interface {
 	Reconciler
+	GetObjectMeta() metav1.ObjectMeta
 	GetBuilder() B
 	ResourceReconcile(ctx context.Context, resource ctrlclient.Object) Result
 }
@@ -38,19 +44,21 @@ func NewGenericResourceReconciler[B builder.Builder](
 	}
 }
 
+func (r *GenericResourceReconciler[b]) GetObjectMeta() metav1.ObjectMeta {
+	return r.Builder.GetObjectMeta()
+}
+
 func (r *GenericResourceReconciler[B]) GetBuilder() B {
 	return r.Builder
 }
 
 func (r *GenericResourceReconciler[B]) ResourceReconcile(ctx context.Context, resource ctrlclient.Object) Result {
 
-	if err := ctrl.SetControllerReference(r.Client.OwnerReference, resource, r.GetCtrlScheme()); err != nil {
-		return NewResult(true, 0, err)
-	}
-
 	if mutation, err := r.Client.CreateOrUpdate(ctx, resource); err != nil {
+		resourceLogger.Error(err, "Failed to create or update resource", "name", resource.GetName(), "namespace", resource.GetNamespace(), "cluster", r.Options.GetClusterName())
 		return NewResult(true, 0, err)
 	} else if mutation {
+		resourceLogger.Info("Resource created or updated", "name", resource.GetName(), "namespace", resource.GetNamespace(), "cluster", r.Options.GetClusterName())
 		return NewResult(true, time.Second, nil)
 	}
 	return NewResult(false, 0, nil)

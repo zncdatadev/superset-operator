@@ -45,12 +45,6 @@ func (r *Reconciler) RegisterResourceWithRoleGroup(
 		//PodOverrides:        roleGroup.PodOverrides,	TODO: Uncomment this line
 	}
 
-	service := reconciler.NewServiceReconciler(
-		r.Client,
-		roleGroupOptions,
-	)
-	r.AddResource(service)
-
 	deployment := NewDeploymentReconciler(
 		r.Client,
 		r.ClusterConfig,
