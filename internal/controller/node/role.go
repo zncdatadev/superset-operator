@@ -56,6 +56,7 @@ func (r *Reconciler) RegisterResourceWithRoleGroup(
 		r.Client,
 		r.ClusterConfig,
 		roleGroupOptions,
+		roleGroup.Config,
 	)
 	r.AddResource(deployment)
 	return nil

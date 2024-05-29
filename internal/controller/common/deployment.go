@@ -44,6 +44,15 @@ func (b *DeploymentBuilder) GetMainContainer() builder.ContainerBuilder {
 	return containerBuilder
 }
 
+// Affinity , if affinity in spec defined, will be used, otherwise default affinity will be used
+func (b *DeploymentBuilder) Affinity(specAffinity *corev1.Affinity, roleAffinity *corev1.Affinity) {
+	var affinity = specAffinity
+	if specAffinity == nil {
+		affinity = roleAffinity
+	}
+	b.GenericDeploymentBuilder.AddAffinity(affinity)
+}
+
 func (b *DeploymentBuilder) GetInitContainer() builder.ContainerBuilder {
 	containerBuilder := builder.NewGenericContainerBuilder(
 		"wait-for-postgres-redis",
