@@ -2,6 +2,8 @@ package worker
 
 import (
 	"context"
+	supersetv1alpha1 "github.com/zncdatadev/superset-operator/api/v1alpha1"
+	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 
 	"github.com/zncdatadev/superset-operator/internal/controller/common"
 	"github.com/zncdatadev/superset-operator/pkg/builder"
@@ -61,6 +63,7 @@ func NewDeploymentReconciler(
 	client *client.Client,
 	clusterConfig *common.ClusterConfig,
 	options *builder.RoleGroupOptions,
+	spec *supersetv1alpha1.WorkerConfigSpec,
 ) *reconciler.DeploymentReconciler {
 	deploymentBuilder := NewDeploymentBuilder(
 		client,
@@ -68,9 +71,32 @@ func NewDeploymentReconciler(
 		options,
 	)
 
+	var specAffinity *corev1.Affinity
+	if spec != nil {
+		specAffinity = spec.Affinity
+	}
+	addAffinityToStatefulSetBuilder(deploymentBuilder, specAffinity, options.RoleOptions.ClusterOptions.Name,
+		options.RoleOptions.Name)
+
 	return reconciler.NewDeploymentReconciler(
 		client,
 		options,
 		deploymentBuilder,
 	)
+}
+
+func addAffinityToStatefulSetBuilder(objectBuilder *DeploymentBuilder, specAffinity *corev1.Affinity,
+	instanceName string, roleName string) {
+	antiAffinityLabels := metav1.LabelSelector{
+		MatchLabels: map[string]string{
+			reconciler.LabelInstance:  instanceName,
+			reconciler.LabelServer:    "superset",
+			reconciler.LabelComponent: roleName,
+		},
+	}
+	defaultAffinityBuilder := builder.AffinityBuilder{PodAffinity: []*builder.PodAffinity{
+		builder.NewPodAffinity(builder.StrengthPrefer, true, antiAffinityLabels).Weight(70),
+	}}
+
+	objectBuilder.Affinity(specAffinity, defaultAffinityBuilder.Build())
 }

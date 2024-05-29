@@ -14,6 +14,13 @@ var (
 	logger = ctrl.Log.WithName("reconciler")
 )
 
+const (
+	LabelServer    = "app.kubernetes.io/Name"
+	LabelInstance  = "app.kubernetes.io/instance"
+	LabelComponent = "app.kubernetes.io/component"
+	LabelManagedBy = "app.kubernetes.io/managed-by"
+)
+
 type ClusterReconciler interface {
 	Reconciler
 	GetClusterOperation() *apiv1alpha1.ClusterOperationSpec
