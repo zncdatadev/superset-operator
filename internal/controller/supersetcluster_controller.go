@@ -19,17 +19,19 @@ package controller
 import (
 	"context"
 
+	"github.com/zncdatadev/operator-go/pkg/client"
+	"github.com/zncdatadev/operator-go/pkg/reconciler"
 	supersetv1alpha1 "github.com/zncdatadev/superset-operator/api/v1alpha1"
 	"github.com/zncdatadev/superset-operator/internal/controller/cluster"
-	resourceclient "github.com/zncdatadev/superset-operator/pkg/client"
+	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 	"k8s.io/apimachinery/pkg/runtime"
 	ctrl "sigs.k8s.io/controller-runtime"
-	"sigs.k8s.io/controller-runtime/pkg/client"
+	k8sClient "sigs.k8s.io/controller-runtime/pkg/client"
 )
 
 // SupersetClusterReconciler reconciles a SupersetCluster object
 type SupersetClusterReconciler struct {
-	client.Client
+	k8sClient.Client
 	Scheme *runtime.Scheme
 }
 
@@ -51,30 +53,39 @@ func (r *SupersetClusterReconciler) Reconcile(ctx context.Context, req ctrl.Requ
 	instance := &supersetv1alpha1.SupersetCluster{}
 	err := r.Get(ctx, req.NamespacedName, instance)
 	if err != nil {
-		if client.IgnoreNotFound(err) == nil {
+		if k8sClient.IgnoreNotFound(err) == nil {
 			logger.V(1).Info("SupersetCluster resource not found. Ignoring since object must be deleted.")
 			return ctrl.Result{}, nil
 		}
 		return ctrl.Result{}, err
 	}
 
-	resourceClient := &resourceclient.Client{
+	resourceClient := &client.Client{
 		Client:         r.Client,
 		OwnerReference: instance,
 	}
 
-	clusterRreconciler := cluster.NewReconciler(resourceClient, instance)
+	clusterInfo := reconciler.ClusterInfo{
+		GVK: &metav1.GroupVersionKind{
+			Group:   supersetv1alpha1.GroupVersion.Group,
+			Version: supersetv1alpha1.GroupVersion.Version,
+			Kind:    "SupersetCluster",
+		},
+		ClusterName: instance.Name,
+	}
+
+	clusterRreconciler := cluster.NewReconciler(resourceClient, clusterInfo, &instance.Spec)
 
 	if err := clusterRreconciler.RegisterResources(ctx); err != nil {
 		return ctrl.Result{}, err
 	}
 
 	if result := clusterRreconciler.Reconcile(ctx); result.RequeueOrNot() {
-		return result.Result()
+		return result.CtrlResult()
 	}
 
 	if result := clusterRreconciler.Ready(ctx); result.RequeueOrNot() {
-		return result.Result()
+		return result.CtrlResult()
 	}
 
 	logger.V(0).Info("Reconcile completed")

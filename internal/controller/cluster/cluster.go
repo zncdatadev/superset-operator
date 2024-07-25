@@ -2,15 +2,15 @@ package cluster
 
 import (
 	"context"
+	"fmt"
 
+	resourceClient "github.com/zncdatadev/operator-go/pkg/client"
+	"github.com/zncdatadev/operator-go/pkg/reconciler"
+	"github.com/zncdatadev/operator-go/pkg/util"
 	supersetv1alpha1 "github.com/zncdatadev/superset-operator/api/v1alpha1"
-	"github.com/zncdatadev/superset-operator/internal/controller/common"
 	"github.com/zncdatadev/superset-operator/internal/controller/node"
 	"github.com/zncdatadev/superset-operator/internal/controller/worker"
-	"github.com/zncdatadev/superset-operator/pkg/builder"
-	resourceClient "github.com/zncdatadev/superset-operator/pkg/client"
-	"github.com/zncdatadev/superset-operator/pkg/reconciler"
-	"github.com/zncdatadev/superset-operator/pkg/util"
+	corev1 "k8s.io/api/core/v1"
 	ctrl "sigs.k8s.io/controller-runtime"
 )
 
@@ -21,81 +21,118 @@ var (
 var _ reconciler.Reconciler = &Reconciler{}
 
 type Reconciler struct {
-	reconciler.BaseClusterReconciler[*supersetv1alpha1.SupersetClusterSpec]
-	ClusterConfig *common.ClusterConfig
-	Options       *builder.ClusterOptions
-}
-
-func (r *Reconciler) RegisterResources(ctx context.Context) error {
-	r.AddResource(NewEnvSecretReconciler(r.Client, r.ClusterConfig, r.Options))
-	r.AddResource(NewSupersetConfigSecretReconciler(r.Client, r.ClusterConfig, r.Options))
-	r.AddResource(NewJobReconciler(r.Client, r.ClusterConfig, r.Options))
-
-	nodeReconciler := node.NewReconciler(
-		r.Client,
-		r.ClusterConfig,
-		&builder.RoleOptions{ClusterOptions: *r.Options, Name: "node"},
-		r.Spec.Node,
-	)
-	if err := nodeReconciler.RegisterResources(ctx); err != nil {
-		return err
-	}
-
-	r.AddResource(nodeReconciler)
-
-	workerReconciler := worker.NewReconciler(
-		r.Client,
-		r.ClusterConfig,
-		&builder.RoleOptions{ClusterOptions: *r.Options, Name: "worker"},
-		r.Spec.Worker,
-	)
-
-	if err := workerReconciler.RegisterResources(ctx); err != nil {
-		return err
-	}
-	r.AddResource(workerReconciler)
-
-	return nil
+	reconciler.BaseCluster[*supersetv1alpha1.SupersetClusterSpec]
+	ClusterConfig *supersetv1alpha1.ClusterConfigSpec
 }
 
 func NewReconciler(
 	client *resourceClient.Client,
-	instance *supersetv1alpha1.SupersetCluster,
+	clusterInfo reconciler.ClusterInfo,
+	spec *supersetv1alpha1.SupersetClusterSpec,
 ) *Reconciler {
-	image := &util.Image{
-		Custom:         instance.Spec.Image.Custom,
-		Repo:           instance.Spec.Image.Repo,
-		KDSVersion:     instance.Spec.Image.KDSVersion,
-		ProductVersion: instance.Spec.Image.ProductVersion,
-	}
-
-	clusterOptions := &builder.ClusterOptions{
-		Name:      instance.Name,
-		Namespace: instance.Namespace,
-		Labels: map[string]string{
-			"app.kubernetes.io/name":       "hbase",
-			"app.kubernetes.io/managed-by": "hbase.zncdata.dev",
-			"app.kubernetes.io/instance":   instance.Name,
-		},
-		Annotations: instance.GetAnnotations(),
-
-		ClusterOperation: instance.Spec.ClusterOperation,
-		Image:            image,
-	}
-
-	clusterConfig := &common.ClusterConfig{
-		EnvSecretName:    instance.Name + "-env",
-		ConfigSecretName: instance.Name + "-config",
-		Spec:             instance.Spec.ClusterConfig,
-	}
 
 	return &Reconciler{
-		BaseClusterReconciler: *reconciler.NewBaseClusterReconciler(
+		BaseCluster: *reconciler.NewBaseCluster(
 			client,
-			clusterOptions,
-			&instance.Spec,
+			clusterInfo,
+			spec.ClusterOperation,
+			spec,
 		),
-		Options:       clusterOptions,
-		ClusterConfig: clusterConfig,
+		ClusterConfig: spec.ClusterConfig,
 	}
+
+}
+
+func (r *Reconciler) GetImage() *util.Image {
+	image := &util.Image{
+		Repository:     supersetv1alpha1.DefaultRepository,
+		ProductName:    "superset",
+		StackVersion:   "0.0.1",
+		ProductVersion: supersetv1alpha1.DefaultProductVersion,
+		PullPolicy:     corev1.PullIfNotPresent,
+	}
+
+	if r.Spec.Image != nil {
+		image.Custom = r.Spec.Image.Custom
+		image.Repository = r.Spec.Image.Repository
+		image.StackVersion = r.Spec.Image.StackVersion
+		image.ProductVersion = r.Spec.Image.ProductVersion
+		image.PullPolicy = r.Spec.Image.PullPolicy
+	}
+	return image
+}
+
+func (r *Reconciler) RegisterResources(ctx context.Context) error {
+
+	envSecretName := fmt.Sprintf("%s-env", r.ClusterInfo.ClusterName)
+	configSecretName := fmt.Sprintf("%s-config", r.ClusterInfo.ClusterName)
+
+	envSecretReconciler := NewEnvSecretReconciler(
+		r.Client,
+		envSecretName,
+		r.ClusterInfo,
+		r.ClusterConfig,
+	)
+	r.AddResource(envSecretReconciler)
+
+	configSecretReconciler := NewConfigSecretReconciler(
+		r.Client,
+		configSecretName,
+		r.ClusterInfo,
+		r.ClusterConfig,
+	)
+	r.AddResource(configSecretReconciler)
+
+	job := NewJobReconciler(
+		r.Client,
+		r.ClusterInfo,
+		r.ClusterConfig,
+		envSecretName,
+		configSecretName,
+		r.GetImage(),
+	)
+	r.AddResource(job)
+
+	node := node.NewReconciler(
+		r.Client,
+		reconciler.RoleInfo{
+			ClusterInfo: r.ClusterInfo,
+			RoleName:    "node",
+		},
+		r.GetClusterOperation(),
+		r.ClusterConfig,
+		envSecretName,
+		configSecretName,
+		r.GetImage(),
+		r.Spec.Node,
+	)
+
+	if err := node.RegisterResources(ctx); err != nil {
+		return err
+	}
+
+	r.AddResource(node)
+
+	worker := worker.NewReconciler(
+		r.Client,
+		reconciler.RoleInfo{
+			ClusterInfo: r.ClusterInfo,
+			RoleName:    "worker",
+		},
+		r.GetClusterOperation(),
+		r.ClusterConfig,
+		envSecretName,
+		configSecretName,
+		r.GetImage(),
+		r.Spec.Worker,
+	)
+
+	if err := worker.RegisterResources(ctx); err != nil {
+		return err
+	}
+
+	r.AddResource(worker)
+
+	return nil
+
 }
