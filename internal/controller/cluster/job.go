@@ -38,7 +38,7 @@ func NewJobBuilder(
 			client,
 			name,
 			image,
-			&options,
+			options,
 		),
 		ClusterConfig: clusterConfig,
 	}
@@ -52,7 +52,7 @@ func (b *JobBuilder) mainContainer() *corev1.Container {
 	}
 	containerBuilder := builder.NewContainer(
 		"superset-init",
-		b.GetImage(),
+		b.GetImageWithTag(),
 	)
 	containerBuilder.AddVolumeMount(volumeMount)
 	// SetCommand([]string{"/bin/sh", "-c", ". /app/pythonpath/superset_bootstrap.sh; . /app/pythonpath/superset_init.sh"})
@@ -137,8 +137,11 @@ func NewJobReconciler(
 ) *reconciler.SimpleResourceReconciler[builder.ResourceBuilder] {
 
 	options := builder.WorkloadOptions{
-		Labels:      clusterInfo.GetLabels(),
-		Annotations: clusterInfo.GetAnnotations(),
+		Options: builder.Options{
+			ClusterName: clusterInfo.GetFullName(),
+			Labels:      clusterInfo.GetLabels(),
+			Annotations: clusterInfo.GetAnnotations(),
+		},
 	}
 
 	jobBuilder := NewJobBuilder(

@@ -23,20 +23,18 @@ type DeploymentBuilder struct {
 func NewDeploymentBuilder(
 	client *client.Client,
 	name string,
-	roleGroupInfo *builder.RoleGroupInfo,
 	clusterConfig *supersetv1alpha1.ClusterConfigSpec,
 	envSecretName string,
 	configSecretName string,
 	replicas *int32,
 	ports []corev1.ContainerPort,
 	image *util.Image,
-	options *builder.WorkloadOptions,
+	options builder.WorkloadOptions,
 ) *DeploymentBuilder {
 	return &DeploymentBuilder{
 		DeploymentBuilder: *common.NewDeploymentBuilder(
 			client,
 			name,
-			roleGroupInfo,
 			clusterConfig,
 			envSecretName,
 			configSecretName,
@@ -83,11 +81,18 @@ func NewDeploymentReconciler(
 	configSecretName string,
 	ports []corev1.ContainerPort,
 	image *util.Image,
+	stopped bool,
 	spec *supersetv1alpha1.WorkerRoleGroupSpec,
 ) (*reconciler.Deployment, error) {
 
-	options := &builder.WorkloadOptions{
-		Labels:           roleGroupInfo.GetLabels(),
+	options := builder.WorkloadOptions{
+		Options: builder.Options{
+			ClusterName:   roleGroupInfo.ClusterName,
+			RoleName:      roleGroupInfo.RoleName,
+			RoleGroupName: roleGroupInfo.RoleGroupName,
+			Labels:        roleGroupInfo.GetLabels(),
+			Annotations:   roleGroupInfo.GetAnnotations(),
+		},
 		PodOverrides:     spec.PodOverride,
 		EnvOverrides:     spec.EnvOverrides,
 		CommandOverrides: spec.CommandOverrides,
@@ -115,11 +120,6 @@ func NewDeploymentReconciler(
 	deploymentBuilder := common.NewDeploymentBuilder(
 		client,
 		roleGroupInfo.GetFullName(),
-		&builder.RoleGroupInfo{
-			ClusterName:   roleGroupInfo.ClusterName,
-			RoleName:      roleGroupInfo.RoleName,
-			RoleGroupName: roleGroupInfo.RoleGroupName,
-		},
 		clusterConfig,
 		envSecretName,
 		configSecretName,
@@ -133,6 +133,7 @@ func NewDeploymentReconciler(
 		client,
 		roleGroupInfo.GetFullName(),
 		deploymentBuilder,
+		stopped,
 	), nil
 }
 

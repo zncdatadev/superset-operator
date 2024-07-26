@@ -19,6 +19,7 @@ type Reconciler struct {
 	EnvSecretName    string
 	ConfigSecretName string
 	Image            *util.Image
+	Stopped          bool
 }
 
 func NewReconciler(
@@ -66,6 +67,13 @@ func (r *Reconciler) RegisterResources(ctx context.Context) error {
 }
 
 func (r *Reconciler) RegisterResourceWithRoleGroup(ctx context.Context, info reconciler.RoleGroupInfo, spec *supersetv1alpha1.NodeRoleGroupSpec) ([]reconciler.Reconciler, error) {
+
+	stopped := false
+
+	if r.ClusterOperation != nil && r.ClusterOperation.Stopped {
+		stopped = true
+	}
+
 	deploymentReconciler, err := NewDeploymentReconciler(
 		r.Client,
 		info,
@@ -74,6 +82,7 @@ func (r *Reconciler) RegisterResourceWithRoleGroup(ctx context.Context, info rec
 		r.ConfigSecretName,
 		Ports,
 		r.Image,
+		stopped,
 		spec,
 	)
 	if err != nil {

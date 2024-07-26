@@ -67,7 +67,14 @@ func (r *Reconciler) RegisterResources(ctx context.Context) error {
 }
 
 func (r *Reconciler) RegisterResourceWithRoleGroup(ctx context.Context, info reconciler.RoleGroupInfo, spec *supersetv1alpha1.WorkerRoleGroupSpec) ([]reconciler.Reconciler, error) {
+	stopped := false
+
+	if r.ClusterOperation != nil && r.ClusterOperation.Stopped {
+		stopped = true
+	}
+
 	ports := make([]corev1.ContainerPort, 0)
+
 	deploymentReconciler, err := NewDeploymentReconciler(
 		r.Client,
 		info,
@@ -76,6 +83,7 @@ func (r *Reconciler) RegisterResourceWithRoleGroup(ctx context.Context, info rec
 		r.ConfigSecretName,
 		ports,
 		r.Image,
+		stopped,
 		spec,
 	)
 	if err != nil {

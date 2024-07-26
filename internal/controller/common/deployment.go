@@ -18,22 +18,21 @@ type DeploymentBuilder struct {
 	builder.Deployment
 	Ports            []corev1.ContainerPort
 	ClusterConfig    *supersetv1alpha1.ClusterConfigSpec
-	RoleGroupInfo    *builder.RoleGroupInfo
 	EnvSecretName    string
 	ConfigSecretName string
+	RoleName         string
 }
 
 func NewDeploymentBuilder(
 	client *client.Client,
 	name string,
-	roleGroupInfo *builder.RoleGroupInfo,
 	clusterConfig *supersetv1alpha1.ClusterConfigSpec,
 	envSecretName string,
 	configSecretName string,
 	replicas *int32,
 	ports []corev1.ContainerPort,
 	image *util.Image,
-	options *builder.WorkloadOptions,
+	options builder.WorkloadOptions,
 ) *DeploymentBuilder {
 	return &DeploymentBuilder{
 		Deployment: *builder.NewDeployment(
@@ -44,17 +43,17 @@ func NewDeploymentBuilder(
 			options,
 		),
 		ClusterConfig:    clusterConfig,
-		RoleGroupInfo:    roleGroupInfo,
 		EnvSecretName:    envSecretName,
 		ConfigSecretName: configSecretName,
 		Ports:            ports,
+		RoleName:         options.RoleName,
 	}
 }
 
 func (b *DeploymentBuilder) GetMainContainer() builder.ContainerBuilder {
 	containerBuilder := builder.NewContainer(
-		b.RoleGroupInfo.RoleName,
-		b.GetImage(),
+		b.RoleName,
+		b.GetImageWithTag(),
 	)
 	containerBuilder.AddEnvFromSecret(b.EnvSecretName)
 	containerBuilder.SetCommand([]string{"/bin/sh", "-c", ". /app/pythonpath/superset_bootstrap.sh; /usr/bin/run-server.sh"})

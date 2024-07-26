@@ -368,8 +368,11 @@ func NewEnvSecretReconciler(
 ) *reconciler.SimpleResourceReconciler[builder.ConfigBuilder] {
 
 	options := builder.WorkloadOptions{
-		Labels:      clusterInfo.GetLabels(),
-		Annotations: clusterInfo.GetAnnotations(),
+		Options: builder.Options{
+			ClusterName: clusterInfo.GetFullName(),
+			Labels:      clusterInfo.GetLabels(),
+			Annotations: clusterInfo.GetAnnotations(),
+		},
 	}
 
 	envSecretBuilder := NewEnvSecretBuilder(
@@ -395,8 +398,11 @@ func NewConfigSecretReconciler(
 ) *reconciler.SimpleResourceReconciler[builder.ConfigBuilder] {
 
 	options := builder.WorkloadOptions{
-		Labels:      clusterInfo.GetLabels(),
-		Annotations: clusterInfo.GetAnnotations(),
+		Options: builder.Options{
+			ClusterName: clusterInfo.GetFullName(),
+			Labels:      clusterInfo.GetLabels(),
+			Annotations: clusterInfo.GetAnnotations(),
+		},
 	}
 
 	supersetConfigSecretBuilder := NewSupersetConfigSecretBuilder(
