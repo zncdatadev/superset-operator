@@ -15,9 +15,9 @@ spec:
     database:
       inline:
         driver: postgres
-        databaseName: superset
-        username: superset
-        password: superset
+        databaseName: postgres
+        username: postgres
+        password: postgres
         host: 192.168.205.1
     redis:
       host: 192.168.205.1

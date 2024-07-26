@@ -38,9 +38,11 @@ func NewJobBuilder(
 			client,
 			name,
 			image,
-			&options,
+			options,
 		),
-		ClusterConfig: clusterConfig,
+		ClusterConfig:    clusterConfig,
+		EnvSecretName:    envSecretName,
+		ConfigSecretName: configSecretName,
 	}
 }
 
@@ -52,7 +54,7 @@ func (b *JobBuilder) mainContainer() *corev1.Container {
 	}
 	containerBuilder := builder.NewContainer(
 		"superset-init",
-		b.GetImage(),
+		b.GetImageWithTag(),
 	)
 	containerBuilder.AddVolumeMount(volumeMount)
 	// SetCommand([]string{"/bin/sh", "-c", ". /app/pythonpath/superset_bootstrap.sh; . /app/pythonpath/superset_init.sh"})
@@ -95,7 +97,6 @@ func (b *JobBuilder) GetObject() (*batchv1.Job, error) {
 	obj := &batchv1.Job{
 		ObjectMeta: b.GetObjectMeta(),
 		Spec: batchv1.JobSpec{
-			Selector: b.GetLabelSelector(),
 			Template: corev1.PodTemplateSpec{
 				ObjectMeta: metav1.ObjectMeta{
 					Labels:      b.GetLabels(),
@@ -109,6 +110,7 @@ func (b *JobBuilder) GetObject() (*batchv1.Job, error) {
 					TerminationGracePeriodSeconds: b.GetTerminationGracePeriodSeconds(),
 					ImagePullSecrets:              b.GetImagePullSecrets(),
 					SecurityContext:               b.GetSecurityContext(),
+					RestartPolicy:                 corev1.RestartPolicyNever,
 				},
 			},
 		},
@@ -137,8 +139,11 @@ func NewJobReconciler(
 ) *reconciler.SimpleResourceReconciler[builder.ResourceBuilder] {
 
 	options := builder.WorkloadOptions{
-		Labels:      clusterInfo.GetLabels(),
-		Annotations: clusterInfo.GetAnnotations(),
+		Options: builder.Options{
+			ClusterName: clusterInfo.GetFullName(),
+			Labels:      clusterInfo.GetLabels(),
+			Annotations: clusterInfo.GetAnnotations(),
+		},
 	}
 
 	jobBuilder := NewJobBuilder(

@@ -49,7 +49,7 @@ func (r *Reconciler) GetImage() *util.Image {
 		ProductName:    "superset",
 		StackVersion:   "0.0.1",
 		ProductVersion: supersetv1alpha1.DefaultProductVersion,
-		PullPolicy:     corev1.PullIfNotPresent,
+		PullPolicy:     &[]corev1.PullPolicy{corev1.PullIfNotPresent}[0],
 	}
 
 	if r.Spec.Image != nil {
@@ -57,7 +57,7 @@ func (r *Reconciler) GetImage() *util.Image {
 		image.Repository = r.Spec.Image.Repository
 		image.StackVersion = r.Spec.Image.StackVersion
 		image.ProductVersion = r.Spec.Image.ProductVersion
-		image.PullPolicy = r.Spec.Image.PullPolicy
+		image.PullPolicy = &r.Spec.Image.PullPolicy
 	}
 	return image
 }

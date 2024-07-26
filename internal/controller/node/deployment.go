@@ -21,15 +21,21 @@ func NewDeploymentReconciler(
 	configSecretName string,
 	ports []corev1.ContainerPort,
 	image *util.Image,
+	stopped bool,
 	spec *supersetv1alpha1.NodeRoleGroupSpec,
 ) (*reconciler.Deployment, error) {
 
-	options := &builder.WorkloadOptions{
-		Labels:           roleGroupInfo.GetLabels(),
+	options := builder.WorkloadOptions{
+		Options: builder.Options{
+			ClusterName:   roleGroupInfo.ClusterName,
+			RoleName:      roleGroupInfo.RoleName,
+			RoleGroupName: roleGroupInfo.RoleGroupName,
+			Labels:        roleGroupInfo.GetLabels(),
+			Annotations:   roleGroupInfo.GetAnnotations(),
+		},
 		PodOverrides:     spec.PodOverride,
 		EnvOverrides:     spec.EnvOverrides,
 		CommandOverrides: spec.CommandOverrides,
-		Resource:         spec.Config.Resources,
 	}
 
 	if spec.Config != nil {
@@ -48,16 +54,12 @@ func NewDeploymentReconciler(
 		options.TerminationGracePeriod = &gracefulShutdownTimeout
 
 		options.Affinity = spec.Config.Affinity
+		options.Resource = spec.Config.Resources
 	}
 
 	deploymentBuilder := common.NewDeploymentBuilder(
 		client,
 		roleGroupInfo.GetFullName(),
-		&builder.RoleGroupInfo{
-			ClusterName:   roleGroupInfo.ClusterName,
-			RoleName:      roleGroupInfo.RoleName,
-			RoleGroupName: roleGroupInfo.RoleGroupName,
-		},
 		clusterConfig,
 		envSecretName,
 		configSecretName,
@@ -71,6 +73,7 @@ func NewDeploymentReconciler(
 		client,
 		roleGroupInfo.GetFullName(),
 		deploymentBuilder,
+		stopped,
 	), nil
 }
 
