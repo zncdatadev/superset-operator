@@ -36,7 +36,6 @@ func NewDeploymentReconciler(
 		PodOverrides:     spec.PodOverride,
 		EnvOverrides:     spec.EnvOverrides,
 		CommandOverrides: spec.CommandOverrides,
-		Resource:         spec.Config.Resources,
 	}
 
 	if spec.Config != nil {
@@ -55,6 +54,7 @@ func NewDeploymentReconciler(
 		options.TerminationGracePeriod = &gracefulShutdownTimeout
 
 		options.Affinity = spec.Config.Affinity
+		options.Resource = spec.Config.Resources
 	}
 
 	deploymentBuilder := common.NewDeploymentBuilder(

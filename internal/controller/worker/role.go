@@ -39,7 +39,10 @@ func NewReconciler(
 			clusterOperation,
 			spec,
 		),
-		ClusterConfig: clusterConfig,
+		ClusterConfig:    clusterConfig,
+		EnvSecretName:    envSecretName,
+		ConfigSecretName: configSecretName,
+		Image:            image,
 	}
 }
 

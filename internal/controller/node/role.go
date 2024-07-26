@@ -19,7 +19,6 @@ type Reconciler struct {
 	EnvSecretName    string
 	ConfigSecretName string
 	Image            *util.Image
-	Stopped          bool
 }
 
 func NewReconciler(
@@ -39,7 +38,10 @@ func NewReconciler(
 			clusterOperation,
 			spec,
 		),
-		ClusterConfig: clusterConfig,
+		ClusterConfig:    clusterConfig,
+		EnvSecretName:    envSecretName,
+		ConfigSecretName: configSecretName,
+		Image:            image,
 	}
 }
 

@@ -40,7 +40,9 @@ func NewJobBuilder(
 			image,
 			options,
 		),
-		ClusterConfig: clusterConfig,
+		ClusterConfig:    clusterConfig,
+		EnvSecretName:    envSecretName,
+		ConfigSecretName: configSecretName,
 	}
 }
 
@@ -95,7 +97,6 @@ func (b *JobBuilder) GetObject() (*batchv1.Job, error) {
 	obj := &batchv1.Job{
 		ObjectMeta: b.GetObjectMeta(),
 		Spec: batchv1.JobSpec{
-			Selector: b.GetLabelSelector(),
 			Template: corev1.PodTemplateSpec{
 				ObjectMeta: metav1.ObjectMeta{
 					Labels:      b.GetLabels(),
@@ -109,6 +110,7 @@ func (b *JobBuilder) GetObject() (*batchv1.Job, error) {
 					TerminationGracePeriodSeconds: b.GetTerminationGracePeriodSeconds(),
 					ImagePullSecrets:              b.GetImagePullSecrets(),
 					SecurityContext:               b.GetSecurityContext(),
+					RestartPolicy:                 corev1.RestartPolicyNever,
 				},
 			},
 		},
