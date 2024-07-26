@@ -3,18 +3,43 @@ package node
 import (
 	"context"
 
+	commonsv1alpha1 "github.com/zncdatadev/operator-go/pkg/apis/commons/v1alpha1"
+	resourceClient "github.com/zncdatadev/operator-go/pkg/client"
+	"github.com/zncdatadev/operator-go/pkg/reconciler"
+	"github.com/zncdatadev/operator-go/pkg/util"
+
 	supersetv1alpha1 "github.com/zncdatadev/superset-operator/api/v1alpha1"
-	"github.com/zncdatadev/superset-operator/internal/controller/common"
-	"github.com/zncdatadev/superset-operator/pkg/builder"
-	resourceClient "github.com/zncdatadev/superset-operator/pkg/client"
-	"github.com/zncdatadev/superset-operator/pkg/reconciler"
 )
 
 var _ reconciler.RoleReconciler = &Reconciler{}
 
 type Reconciler struct {
 	reconciler.BaseRoleReconciler[*supersetv1alpha1.NodeSpec]
-	ClusterConfig *common.ClusterConfig
+	ClusterConfig    *supersetv1alpha1.ClusterConfigSpec
+	EnvSecretName    string
+	ConfigSecretName string
+	Image            *util.Image
+}
+
+func NewReconciler(
+	client *resourceClient.Client,
+	roleInfo reconciler.RoleInfo,
+	clusterOperation *commonsv1alpha1.ClusterOperationSpec,
+	clusterConfig *supersetv1alpha1.ClusterConfigSpec,
+	envSecretName string,
+	configSecretName string,
+	image *util.Image,
+	spec *supersetv1alpha1.NodeSpec,
+) *Reconciler {
+	return &Reconciler{
+		BaseRoleReconciler: *reconciler.NewBaseRoleReconciler(
+			client,
+			roleInfo,
+			clusterOperation,
+			spec,
+		),
+		ClusterConfig: clusterConfig,
+	}
 }
 
 func (r *Reconciler) RegisterResources(ctx context.Context) error {
@@ -22,58 +47,38 @@ func (r *Reconciler) RegisterResources(ctx context.Context) error {
 		mergedRoleGroup := rg.DeepCopy()
 		r.MergeRoleGroupSpec(mergedRoleGroup)
 
-		if err := r.RegisterResourceWithRoleGroup(ctx, name, mergedRoleGroup); err != nil {
+		info := reconciler.RoleGroupInfo{
+			RoleInfo:      r.RoleInfo,
+			RoleGroupName: name,
+		}
+
+		reconcilers, err := r.RegisterResourceWithRoleGroup(ctx, info, mergedRoleGroup)
+
+		if err != nil {
 			return err
+		}
+
+		for _, reconciler := range reconcilers {
+			r.AddResource(reconciler)
 		}
 	}
 	return nil
 }
 
-func (r *Reconciler) RegisterResourceWithRoleGroup(
-	_ context.Context,
-	name string,
-	roleGroup *supersetv1alpha1.NodeRoleGroupSpec,
-) error {
-
-	roleGroupOptions := &builder.RoleGroupOptions{
-		RoleOptions:         *r.Options,
-		Name:                name,
-		Replicas:            roleGroup.Replicas,
-		PodDisruptionBudget: roleGroup.PodDisruptionBudget,
-		CommandOverrides:    roleGroup.CommandOverrides,
-		EnvOverrides:        roleGroup.EnvOverrides,
-		//PodOverrides:        roleGroup.PodOverrides,	TODO: Uncomment this line
-	}
-	roleGroupOptions.SetPorts(Ports)
-
-	service := reconciler.NewServiceReconciler(
+func (r *Reconciler) RegisterResourceWithRoleGroup(ctx context.Context, info reconciler.RoleGroupInfo, spec *supersetv1alpha1.NodeRoleGroupSpec) ([]reconciler.Reconciler, error) {
+	deploymentReconciler, err := NewDeploymentReconciler(
 		r.Client,
-		roleGroupOptions,
-	)
-	r.AddResource(service)
-
-	deployment := NewDeploymentReconciler(
-		r.Client,
+		info,
 		r.ClusterConfig,
-		roleGroupOptions,
-		roleGroup.Config,
+		r.EnvSecretName,
+		r.ConfigSecretName,
+		Ports,
+		r.Image,
+		spec,
 	)
-	r.AddResource(deployment)
-	return nil
-}
-
-func NewReconciler(
-	client *resourceClient.Client,
-	clusterConfig *common.ClusterConfig,
-	options *builder.RoleOptions,
-	spec *supersetv1alpha1.NodeSpec,
-) *Reconciler {
-	return &Reconciler{
-		BaseRoleReconciler: *reconciler.NewBaseRoleReconciler(
-			client,
-			options,
-			spec,
-		),
-		ClusterConfig: clusterConfig,
+	if err != nil {
+		return nil, err
 	}
+
+	return []reconciler.Reconciler{deploymentReconciler}, nil
 }

@@ -3,14 +3,13 @@ package cluster
 import (
 	"context"
 	"encoding/base64"
-	"errors"
 	"fmt"
 
-	"github.com/zncdatadev/superset-operator/internal/controller/common"
-	"github.com/zncdatadev/superset-operator/pkg/builder"
-	"github.com/zncdatadev/superset-operator/pkg/client"
-	"github.com/zncdatadev/superset-operator/pkg/reconciler"
-	"github.com/zncdatadev/superset-operator/pkg/util"
+	"github.com/zncdatadev/operator-go/pkg/builder"
+	"github.com/zncdatadev/operator-go/pkg/client"
+	"github.com/zncdatadev/operator-go/pkg/reconciler"
+	"github.com/zncdatadev/operator-go/pkg/util"
+	supersetv1alpha1 "github.com/zncdatadev/superset-operator/api/v1alpha1"
 	corev1 "k8s.io/api/core/v1"
 	apierrors "k8s.io/apimachinery/pkg/api/errors"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
@@ -21,18 +20,21 @@ var _ builder.ConfigBuilder = &EnvSecretBuilder{}
 
 type EnvSecretBuilder struct {
 	builder.SecretBuilder
-	ClusterConfig *common.ClusterConfig
+	ClusterConfig *supersetv1alpha1.ClusterConfigSpec
 }
 
 func NewEnvSecretBuilder(
 	client *client.Client,
-	clusterConfig *common.ClusterConfig,
-	options builder.Options,
+	name string,
+	clusterConfig *supersetv1alpha1.ClusterConfigSpec,
+	options builder.WorkloadOptions,
 ) *EnvSecretBuilder {
 	return &EnvSecretBuilder{
 		SecretBuilder: *builder.NewSecretBuilder(
 			client,
-			options,
+			name,
+			options.Labels,
+			options.Annotations,
 		),
 		ClusterConfig: clusterConfig,
 	}
@@ -40,11 +42,8 @@ func NewEnvSecretBuilder(
 
 func (b *EnvSecretBuilder) getRedisConfig(ctx context.Context) (map[string]string, error) {
 	env := make(map[string]string)
-	if b.ClusterConfig.Spec == nil && b.ClusterConfig.Spec.Redis == nil {
-		return nil, errors.New("redis config in clusterConfig is Required")
-	}
 
-	redisSpec := b.ClusterConfig.Spec.Redis
+	redisSpec := b.ClusterConfig.Redis
 
 	ns := b.Client.GetOwnerNamespace()
 
@@ -59,10 +58,7 @@ func (b *EnvSecretBuilder) getRedisConfig(ctx context.Context) (map[string]strin
 		}
 		bytes, ok := secretObj.Data["password"]
 		if !ok {
-			return nil, fmt.Errorf("password not found in secret: %s, namespace: %s",
-				redisSpec.ExistSecret,
-				ns,
-			)
+			return nil, fmt.Errorf("password not found in secret: %s, namespace: %s", redisSpec.ExistSecret, ns)
 		}
 		env["REDIS_PASSWORD"] = string(bytes)
 	}
@@ -72,11 +68,7 @@ func (b *EnvSecretBuilder) getRedisConfig(ctx context.Context) (map[string]strin
 	}
 
 	if redisSpec.Host == "" {
-		return nil, fmt.Errorf(
-			"redis host is required, cluster: %s, namespace: %s",
-			b.Options.GetName(),
-			ns,
-		)
+		return nil, fmt.Errorf("redis host is required, cluster: %s, namespace: %s", b.Client.GetOwnerName(), ns)
 	}
 
 	env["REDIS_HOST"] = redisSpec.Host
@@ -89,11 +81,8 @@ func (b *EnvSecretBuilder) getRedisConfig(ctx context.Context) (map[string]strin
 
 func (b *EnvSecretBuilder) getDBConfig(ctx context.Context) (map[string]string, error) {
 	env := make(map[string]string)
-	if b.ClusterConfig.Spec == nil && b.ClusterConfig.Spec.Database == nil {
-		return nil, errors.New("database config in clusterConfig is Required")
-	}
 
-	dbSpec := b.ClusterConfig.Spec.Database
+	dbSpec := b.ClusterConfig.Database
 
 	var dbInline *client.DatabaseParams
 
@@ -134,7 +123,7 @@ func (b *EnvSecretBuilder) getDBConfig(ctx context.Context) (map[string]string, 
 // If the secret is not set, it will return the admin info from the cluster config.
 // If the secret is set, it will check the secret data.
 func (b *EnvSecretBuilder) GetAdminInfoFromSecret(ctx context.Context) (map[string]string, error) {
-	adminSpec := b.ClusterConfig.Spec.Administrator
+	adminSpec := b.ClusterConfig.Administrator
 	if adminSpec.ExistSecret == "" {
 		return map[string]string{
 			"ADMIN_USER":      adminSpec.Username,
@@ -180,7 +169,7 @@ func (b *EnvSecretBuilder) GetAdminInfoFromSecret(ctx context.Context) (map[stri
 // getFlaskSecretKey generates a secret key for flask app.
 func (b *EnvSecretBuilder) getFlaskSecretKey() (map[string]string, error) {
 	var key string
-	appSecretKeySpec := b.ClusterConfig.Spec.AppSecretKey
+	appSecretKeySpec := b.ClusterConfig.AppSecretKey
 	if appSecretKeySpec == nil {
 		key = b.getRandomString(42)
 	} else if appSecretKeySpec.ExistSecret != "" {
@@ -250,24 +239,26 @@ func (b *EnvSecretBuilder) Build(ctx context.Context) (ctrlclient.Object, error)
 	}
 	b.AddData(flaskSecretKeyData)
 
-	b.SetName(b.ClusterConfig.EnvSecretName)
 	return b.GetObject(), nil
 }
 
 type SupersetConfigSecretBuilder struct {
 	builder.SecretBuilder
-	ClusterConfig *common.ClusterConfig
+	ClusterConfig *supersetv1alpha1.ClusterConfigSpec
 }
 
 func NewSupersetConfigSecretBuilder(
 	client *client.Client,
-	clusterConfig *common.ClusterConfig,
-	options builder.Options,
+	name string,
+	clusterConfig *supersetv1alpha1.ClusterConfigSpec,
+	options builder.WorkloadOptions,
 ) *SupersetConfigSecretBuilder {
 	return &SupersetConfigSecretBuilder{
 		SecretBuilder: *builder.NewSecretBuilder(
 			client,
-			options,
+			name,
+			options.Labels,
+			options.Annotations,
 		),
 		ClusterConfig: clusterConfig,
 	}
@@ -366,45 +357,58 @@ func (b *SupersetConfigSecretBuilder) Build(_ context.Context) (ctrlclient.Objec
 		"superset_bootstrap.sh": b.getSupersetBootstrap(),
 	}
 	b.AddData(config)
-	b.SetName(b.ClusterConfig.ConfigSecretName)
 	return b.GetObject(), nil
 }
 
 func NewEnvSecretReconciler(
 	client *client.Client,
-	clusterConfig *common.ClusterConfig,
-	options builder.Options,
+	name string,
+	clusterInfo reconciler.ClusterInfo,
+	clusterConfig *supersetv1alpha1.ClusterConfigSpec,
 ) *reconciler.SimpleResourceReconciler[builder.ConfigBuilder] {
+
+	options := builder.WorkloadOptions{
+		Labels:      clusterInfo.GetLabels(),
+		Annotations: clusterInfo.GetAnnotations(),
+	}
 
 	envSecretBuilder := NewEnvSecretBuilder(
 		client,
+		name,
 		clusterConfig,
 		options,
 	)
 
 	return reconciler.NewSimpleResourceReconciler[builder.ConfigBuilder](
 		client,
-		options,
+		name,
 		envSecretBuilder,
 	)
 
 }
 
-func NewSupersetConfigSecretReconciler(
+func NewConfigSecretReconciler(
 	client *client.Client,
-	clusterConfig *common.ClusterConfig,
-	options builder.Options,
+	name string,
+	clusterInfo reconciler.ClusterInfo,
+	clusterConfig *supersetv1alpha1.ClusterConfigSpec,
 ) *reconciler.SimpleResourceReconciler[builder.ConfigBuilder] {
+
+	options := builder.WorkloadOptions{
+		Labels:      clusterInfo.GetLabels(),
+		Annotations: clusterInfo.GetAnnotations(),
+	}
 
 	supersetConfigSecretBuilder := NewSupersetConfigSecretBuilder(
 		client,
+		name,
 		clusterConfig,
 		options,
 	)
 
 	return reconciler.NewSimpleResourceReconciler[builder.ConfigBuilder](
 		client,
-		options,
+		name,
 		supersetConfigSecretBuilder,
 	)
 }

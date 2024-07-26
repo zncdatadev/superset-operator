@@ -2,13 +2,16 @@ package worker
 
 import (
 	"context"
-	supersetv1alpha1 "github.com/zncdatadev/superset-operator/api/v1alpha1"
-	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
+	"errors"
+	"time"
 
+	supersetv1alpha1 "github.com/zncdatadev/superset-operator/api/v1alpha1"
+
+	"github.com/zncdatadev/operator-go/pkg/builder"
+	"github.com/zncdatadev/operator-go/pkg/client"
+	"github.com/zncdatadev/operator-go/pkg/reconciler"
+	"github.com/zncdatadev/operator-go/pkg/util"
 	"github.com/zncdatadev/superset-operator/internal/controller/common"
-	"github.com/zncdatadev/superset-operator/pkg/builder"
-	"github.com/zncdatadev/superset-operator/pkg/client"
-	"github.com/zncdatadev/superset-operator/pkg/reconciler"
 	corev1 "k8s.io/api/core/v1"
 	ctrlclient "sigs.k8s.io/controller-runtime/pkg/client"
 )
@@ -19,16 +22,29 @@ type DeploymentBuilder struct {
 
 func NewDeploymentBuilder(
 	client *client.Client,
-	clusterConfig *common.ClusterConfig,
-	options *builder.RoleGroupOptions,
+	name string,
+	roleGroupInfo *builder.RoleGroupInfo,
+	clusterConfig *supersetv1alpha1.ClusterConfigSpec,
+	envSecretName string,
+	configSecretName string,
+	replicas *int32,
+	ports []corev1.ContainerPort,
+	image *util.Image,
+	options *builder.WorkloadOptions,
 ) *DeploymentBuilder {
-	deploymentBuilder := common.NewDeploymentBuilder(
-		client,
-		clusterConfig,
-		options,
-	)
 	return &DeploymentBuilder{
-		DeploymentBuilder: *deploymentBuilder,
+		DeploymentBuilder: *common.NewDeploymentBuilder(
+			client,
+			name,
+			roleGroupInfo,
+			clusterConfig,
+			envSecretName,
+			configSecretName,
+			replicas,
+			ports,
+			image,
+			options,
+		),
 	}
 }
 
@@ -40,7 +56,7 @@ func (b *DeploymentBuilder) Build(ctx context.Context) (ctrlclient.Object, error
 
 	mainContainerBuilder := b.DeploymentBuilder.GetMainContainer()
 	mainContainerBuilder.SetCommand([]string{"/bin/sh", "-c", ". /app/pythonpath/superset_bootstrap.sh; celery --app=superset.tasks.celery_app:app worker"})
-	mainContainerBuilder.SetLiveProbe(&corev1.Probe{
+	mainContainerBuilder.SetLivenessProbe(&corev1.Probe{
 		ProbeHandler: corev1.ProbeHandler{
 			Exec: &corev1.ExecAction{
 				Command: []string{"sh", "-c", "celery -A superset.tasks.celery_app:app inspect ping -d celery@$HOSTNAME"},
@@ -56,47 +72,82 @@ func (b *DeploymentBuilder) Build(ctx context.Context) (ctrlclient.Object, error
 
 	b.ResetContainers([]corev1.Container{*mainContainer})
 
-	return b.GetObject(), nil
+	return b.GetObject()
 }
 
 func NewDeploymentReconciler(
 	client *client.Client,
-	clusterConfig *common.ClusterConfig,
-	options *builder.RoleGroupOptions,
-	spec *supersetv1alpha1.WorkerConfigSpec,
-) *reconciler.DeploymentReconciler {
-	deploymentBuilder := NewDeploymentBuilder(
-		client,
-		clusterConfig,
-		options,
-	)
+	roleGroupInfo reconciler.RoleGroupInfo,
+	clusterConfig *supersetv1alpha1.ClusterConfigSpec,
+	envSecretName string,
+	configSecretName string,
+	ports []corev1.ContainerPort,
+	image *util.Image,
+	spec *supersetv1alpha1.WorkerRoleGroupSpec,
+) (*reconciler.Deployment, error) {
 
-	var specAffinity *corev1.Affinity
-	if spec != nil {
-		specAffinity = spec.Affinity
+	options := &builder.WorkloadOptions{
+		Labels:           roleGroupInfo.GetLabels(),
+		PodOverrides:     spec.PodOverride,
+		EnvOverrides:     spec.EnvOverrides,
+		CommandOverrides: spec.CommandOverrides,
+		Resource:         spec.Config.Resources,
 	}
-	addAffinityToStatefulSetBuilder(deploymentBuilder, specAffinity, options.RoleOptions.ClusterOptions.Name,
-		options.RoleOptions.Name)
 
-	return reconciler.NewDeploymentReconciler(
+	if spec.Config != nil {
+
+		var gracefulShutdownTimeout time.Duration
+		var err error
+
+		if spec.Config.GracefulShutdownTimeout != "" {
+			gracefulShutdownTimeout, err = time.ParseDuration(spec.Config.GracefulShutdownTimeout)
+
+			if err != nil {
+				return nil, errors.New("failed to parse graceful shutdown")
+			}
+		}
+
+		options.TerminationGracePeriod = &gracefulShutdownTimeout
+
+		options.Affinity = spec.Config.Affinity
+	}
+
+	deploymentBuilder := common.NewDeploymentBuilder(
 		client,
-		options,
-		deploymentBuilder,
-	)
-}
-
-func addAffinityToStatefulSetBuilder(objectBuilder *DeploymentBuilder, specAffinity *corev1.Affinity,
-	instanceName string, roleName string) {
-	antiAffinityLabels := metav1.LabelSelector{
-		MatchLabels: map[string]string{
-			reconciler.LabelInstance:  instanceName,
-			reconciler.LabelServer:    "superset",
-			reconciler.LabelComponent: roleName,
+		roleGroupInfo.GetFullName(),
+		&builder.RoleGroupInfo{
+			ClusterName:   roleGroupInfo.ClusterName,
+			RoleName:      roleGroupInfo.RoleName,
+			RoleGroupName: roleGroupInfo.RoleGroupName,
 		},
-	}
-	defaultAffinityBuilder := builder.AffinityBuilder{PodAffinity: []*builder.PodAffinity{
-		builder.NewPodAffinity(builder.StrengthPrefer, true, antiAffinityLabels).Weight(70),
-	}}
+		clusterConfig,
+		envSecretName,
+		configSecretName,
+		spec.Replicas,
+		ports,
+		image,
+		options,
+	)
 
-	objectBuilder.Affinity(specAffinity, defaultAffinityBuilder.Build())
+	return reconciler.NewDeployment(
+		client,
+		roleGroupInfo.GetFullName(),
+		deploymentBuilder,
+	), nil
 }
+
+// func addAffinityToStatefulSetBuilder(objectBuilder *DeploymentBuilder, specAffinity *corev1.Affinity,
+// 	instanceName string, roleName string) {
+// 	antiAffinityLabels := metav1.LabelSelector{
+// 		MatchLabels: map[string]string{
+// 			reconciler.LabelInstance:  instanceName,
+// 			reconciler.LabelServer:    "superset",
+// 			reconciler.LabelComponent: roleName,
+// 		},
+// 	}
+// 	defaultAffinityBuilder := builder.AffinityBuilder{PodAffinity: []*builder.PodAffinity{
+// 		builder.NewPodAffinity(builder.StrengthPrefer, true, antiAffinityLabels).Weight(70),
+// 	}}
+
+// 	objectBuilder.Affinity(specAffinity, defaultAffinityBuilder.Build())
+// }

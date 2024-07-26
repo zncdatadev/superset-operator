@@ -21,7 +21,7 @@ limitations under the License.
 package v1alpha1
 
 import (
-	apisv1alpha1 "github.com/zncdatadev/superset-operator/pkg/apis/v1alpha1"
+	commonsv1alpha1 "github.com/zncdatadev/operator-go/pkg/apis/commons/v1alpha1"
 	"k8s.io/api/core/v1"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 	runtime "k8s.io/apimachinery/pkg/runtime"
@@ -179,22 +179,17 @@ func (in *NodeConfigSpec) DeepCopyInto(out *NodeConfigSpec) {
 	}
 	if in.PodDisruptionBudget != nil {
 		in, out := &in.PodDisruptionBudget, &out.PodDisruptionBudget
-		*out = new(apisv1alpha1.PodDisruptionBudgetSpec)
-		**out = **in
-	}
-	if in.GracefulShutdownTimeout != nil {
-		in, out := &in.GracefulShutdownTimeout, &out.GracefulShutdownTimeout
-		*out = new(string)
+		*out = new(commonsv1alpha1.PodDisruptionBudgetSpec)
 		**out = **in
 	}
 	if in.Logging != nil {
 		in, out := &in.Logging, &out.Logging
-		*out = new(apisv1alpha1.LoggingConfigSpec)
+		*out = new(commonsv1alpha1.LoggingConfigSpec)
 		(*in).DeepCopyInto(*out)
 	}
 	if in.Resources != nil {
 		in, out := &in.Resources, &out.Resources
-		*out = new(apisv1alpha1.ResourcesSpec)
+		*out = new(commonsv1alpha1.ResourcesSpec)
 		(*in).DeepCopyInto(*out)
 	}
 }
@@ -222,9 +217,14 @@ func (in *NodeRoleGroupSpec) DeepCopyInto(out *NodeRoleGroupSpec) {
 		*out = new(NodeConfigSpec)
 		(*in).DeepCopyInto(*out)
 	}
+	if in.PodOverride != nil {
+		in, out := &in.PodOverride, &out.PodOverride
+		*out = new(v1.PodTemplateSpec)
+		(*in).DeepCopyInto(*out)
+	}
 	if in.PodDisruptionBudget != nil {
 		in, out := &in.PodDisruptionBudget, &out.PodDisruptionBudget
-		*out = new(apisv1alpha1.PodDisruptionBudgetSpec)
+		*out = new(commonsv1alpha1.PodDisruptionBudgetSpec)
 		**out = **in
 	}
 	if in.CommandOverrides != nil {
@@ -273,8 +273,13 @@ func (in *NodeSpec) DeepCopyInto(out *NodeSpec) {
 	}
 	if in.PodDisruptionBudget != nil {
 		in, out := &in.PodDisruptionBudget, &out.PodDisruptionBudget
-		*out = new(apisv1alpha1.PodDisruptionBudgetSpec)
+		*out = new(commonsv1alpha1.PodDisruptionBudgetSpec)
 		**out = **in
+	}
+	if in.PodOverride != nil {
+		in, out := &in.PodOverride, &out.PodOverride
+		*out = new(v1.PodTemplateSpec)
+		(*in).DeepCopyInto(*out)
 	}
 	if in.CommandOverrides != nil {
 		in, out := &in.CommandOverrides, &out.CommandOverrides
@@ -392,7 +397,7 @@ func (in *SupersetClusterSpec) DeepCopyInto(out *SupersetClusterSpec) {
 	}
 	if in.ClusterOperation != nil {
 		in, out := &in.ClusterOperation, &out.ClusterOperation
-		*out = new(apisv1alpha1.ClusterOperationSpec)
+		*out = new(commonsv1alpha1.ClusterOperationSpec)
 		**out = **in
 	}
 	if in.Node != nil {
@@ -471,22 +476,17 @@ func (in *WorkerConfigSpec) DeepCopyInto(out *WorkerConfigSpec) {
 	}
 	if in.PodDisruptionBudget != nil {
 		in, out := &in.PodDisruptionBudget, &out.PodDisruptionBudget
-		*out = new(apisv1alpha1.PodDisruptionBudgetSpec)
-		**out = **in
-	}
-	if in.GracefulShutdownTimeout != nil {
-		in, out := &in.GracefulShutdownTimeout, &out.GracefulShutdownTimeout
-		*out = new(string)
+		*out = new(commonsv1alpha1.PodDisruptionBudgetSpec)
 		**out = **in
 	}
 	if in.Logging != nil {
 		in, out := &in.Logging, &out.Logging
-		*out = new(apisv1alpha1.LoggingConfigSpec)
+		*out = new(commonsv1alpha1.LoggingConfigSpec)
 		(*in).DeepCopyInto(*out)
 	}
 	if in.Resources != nil {
 		in, out := &in.Resources, &out.Resources
-		*out = new(apisv1alpha1.ResourcesSpec)
+		*out = new(commonsv1alpha1.ResourcesSpec)
 		(*in).DeepCopyInto(*out)
 	}
 }
@@ -514,9 +514,14 @@ func (in *WorkerRoleGroupSpec) DeepCopyInto(out *WorkerRoleGroupSpec) {
 		*out = new(WorkerConfigSpec)
 		(*in).DeepCopyInto(*out)
 	}
+	if in.PodOverride != nil {
+		in, out := &in.PodOverride, &out.PodOverride
+		*out = new(v1.PodTemplateSpec)
+		(*in).DeepCopyInto(*out)
+	}
 	if in.PodDisruptionBudget != nil {
 		in, out := &in.PodDisruptionBudget, &out.PodDisruptionBudget
-		*out = new(apisv1alpha1.PodDisruptionBudgetSpec)
+		*out = new(commonsv1alpha1.PodDisruptionBudgetSpec)
 		**out = **in
 	}
 	if in.CommandOverrides != nil {
@@ -563,9 +568,14 @@ func (in *WorkerSpec) DeepCopyInto(out *WorkerSpec) {
 		*out = new(WorkerConfigSpec)
 		(*in).DeepCopyInto(*out)
 	}
+	if in.PodOverride != nil {
+		in, out := &in.PodOverride, &out.PodOverride
+		*out = new(v1.PodTemplateSpec)
+		(*in).DeepCopyInto(*out)
+	}
 	if in.PodDisruptionBudget != nil {
 		in, out := &in.PodDisruptionBudget, &out.PodDisruptionBudget
-		*out = new(apisv1alpha1.PodDisruptionBudgetSpec)
+		*out = new(commonsv1alpha1.PodDisruptionBudgetSpec)
 		**out = **in
 	}
 	if in.CommandOverrides != nil {
