@@ -3,7 +3,7 @@
 # To re-generate a bundle for another specific version without changing the standard setup, you can:
 # - use the VERSION as arg of the bundle target (e.g make bundle VERSION=0.0.2)
 # - use environment variables to overwrite this value (e.g export VERSION=0.0.2)
-VERSION ?= 0.0.1
+VERSION ?= 0.0.0-dev
 
 # CHANNELS define the bundle channels used in the bundle.
 # Add a new line here if you would like to change its default config. (E.g CHANNELS = "candidate,fast,stable")
@@ -38,7 +38,7 @@ IMAGE_TAG_BASE ?= $(REGISTRY)/$(PROJECT_NAME)
 
 # BUNDLE_IMG defines the image:tag used for the bundle.
 # You can use it as an arg. (E.g make bundle-build BUNDLE_IMG=<some-registry>/<project-name-bundle>:<tag>)
-BUNDLE_IMG ?= $(IMAGE_TAG_BASE)-bundle:v$(VERSION)
+BUNDLE_IMG ?= $(IMAGE_TAG_BASE)-bundle:$(VERSION)
 
 # BUNDLE_GEN_FLAGS are the flags passed to the operator-sdk generate bundle command
 BUNDLE_GEN_FLAGS ?= -q --overwrite --version $(VERSION) $(BUNDLE_METADATA_OPTS)
@@ -56,7 +56,7 @@ endif
 OPERATOR_SDK_VERSION ?= v1.35.0
 
 # Image URL to use all building/pushing image targets
-IMG ?= $(IMAGE_TAG_BASE):v$(VERSION)
+IMG ?= $(IMAGE_TAG_BASE):$(VERSION)
 # ENVTEST_K8S_VERSION refers to the version of kubebuilder assets to be downloaded by envtest binary.
 ENVTEST_K8S_VERSION = 1.26.1
 
@@ -115,6 +115,22 @@ fmt: ## Run go fmt against code.
 .PHONY: vet
 vet: ## Run go vet against code.
 	go vet ./...
+
+GOLANGCI_LINT = $(shell pwd)/bin/golangci-lint
+GOLANGCI_LINT_VERSION ?= v1.60.3
+golangci-lint:
+	@[ -f $(GOLANGCI_LINT) ] || { \
+	set -e ;\
+	curl -sSfL https://raw.githubusercontent.com/golangci/golangci-lint/master/install.sh | sh -s -- -b $(shell dirname $(GOLANGCI_LINT)) $(GOLANGCI_LINT_VERSION) ;\
+	}
+
+.PHONY: lint
+lint: golangci-lint ## Run golangci-lint linter & yamllint
+	$(GOLANGCI_LINT) run --timeout 5m
+
+.PHONY: lint-fix
+lint-fix: golangci-lint ## Run golangci-lint linter and perform fixes
+	$(GOLANGCI_LINT) run --fix
 
 .PHONY: test
 test: manifests generate fmt vet envtest ## Run tests.
@@ -248,14 +264,22 @@ bundle: manifests kustomize operator-sdk ## Generate bundle manifests and metada
 
 .PHONY: bundle-build
 bundle-build: ## Build the bundle image.
-	docker build -f bundle.Dockerfile -t $(BUNDLE_IMG) .
+	docker build -f bundle.Dockerfile -t $(BUNDLE_IMG) --no-cache .
 
 .PHONY: bundle-push
 bundle-push: ## Push the bundle image.
 	$(MAKE) docker-push IMG=$(BUNDLE_IMG)
 
 
+.PHONY: bundle-buildx
+bundle-buildx: ## Build the bundle image.
+	- $(CONTAINER_TOOL) buildx create --name project-v3-builder
+	$(CONTAINER_TOOL) buildx use project-v3-builder
+	$(CONTAINER_TOOL) buildx build --push --platform=$(PLATFORMS) --tag $(BUNDLE_IMG) -f bundle.Dockerfile .
+	$(CONTAINER_TOOL) buildx rm project-v3-builder
+
 OPM_VERSION ?= v1.43.0
+CATALOG_IMG ?= $(IMAGE_TAG_BASE)-catalog:latest
 
 .PHONY: opm
 OPM = ./bin/opm
@@ -274,26 +298,107 @@ OPM = $(shell which opm)
 endif
 endif
 
-# A comma-separated list of bundle images (e.g. make catalog-build BUNDLE_IMGS=example.com/operator-bundle:v0.1.0,example.com/operator-bundle:v0.2.0).
-# These images MUST exist in a registry and be pull-able.
-BUNDLE_IMGS ?= $(BUNDLE_IMG)
+.PHONY: catalog
+catalog: opm ## Build a catalog manifests.
+	mkdir -p catalog
+	@if ! test -f ./catalog.Dockerfile; then \
+		$(OPM) generate dockerfile catalog; \
+	fi
+	$(OPM) alpha render-template basic -o yaml catalog-template.yaml > catalog/catalog.yaml
 
-# The image tag given to the resulting catalog image (e.g. make catalog-build CATALOG_IMG=example.com/operator-catalog:v0.2.0).
-CATALOG_IMG ?= $(IMAGE_TAG_BASE)-catalog:v$(VERSION)
+.PHONY: catalog-validate
+catalog-validate: opm ## Validate a catalog manifests.
+	$(OPM) validate catalog
 
-# Set CATALOG_BASE_IMG to an existing catalog image tag to add $BUNDLE_IMGS to that image.
-ifneq ($(origin CATALOG_BASE_IMG), undefined)
-FROM_INDEX_OPT := --from-index $(CATALOG_BASE_IMG)
-endif
-
-# Build a catalog image by adding bundle images to an empty catalog using the operator package manager tool, 'opm'.
-# This recipe invokes 'opm' in 'semver' bundle add mode. For more information on add modes, see:
-# https://github.com/operator-framework/community-operators/blob/7f1438c/docs/packaging-operator.md#updating-your-existing-operator
 .PHONY: catalog-build
-catalog-build: opm ## Build a catalog image.
-	$(OPM) index add --container-tool docker --mode semver --tag $(CATALOG_IMG) --bundles $(BUNDLE_IMGS) $(FROM_INDEX_OPT)
+catalog-build: ## Build a catalog image.
+	$(CONTAINER_TOOL) build -t ${CATALOG_IMG} -f catalog.Dockerfile .
 
 # Push the catalog image.
-.PHONY: catalog-push
-catalog-push: ## Push a catalog image.
+.PHONY: catalog-docker-push
+catalog-docker-push: ## Push a catalog image.
 	$(MAKE) docker-push IMG=$(CATALOG_IMG)
+
+.PHONY: catalog-buildx
+catalog-buildx: ## Build and push a catalog image for cross-platform support
+	- $(CONTAINER_TOOL) buildx create --name project-v3-builder
+	$(CONTAINER_TOOL) buildx use project-v3-builder
+	$(CONTAINER_TOOL) buildx build --push --platform=$(PLATFORMS) -f catalog.Dockerfile --tag ${CATALOG_IMG} .
+	$(CONTAINER_TOOL) buildx rm project-v3-builder
+
+# kind
+KIND_VERSION ?= v0.23.0
+
+KINDTEST_K8S_VERSION ?= 1.26.14
+
+KIND_IMAGE ?= kindest/node:v${KINDTEST_K8S_VERSION}
+
+KIND_KUBECONFIG ?= ./kind-kubeconfig-$(KINDTEST_K8S_VERSION)
+KIND_CLUSTER_NAME ?= ${PROJECT_NAME}-$(KINDTEST_K8S_VERSION)
+
+.PHONY: kind
+KIND = $(LOCALBIN)/kind
+kind: ## Download kind locally if necessary.
+ifeq (,$(shell which $(KIND)))
+ifeq (,$(shell which kind 2>/dev/null))
+	@{ \
+	set -e ;\
+	go install sigs.k8s.io/kind@$(KIND_VERSION) ;\
+	}
+KIND = $(GOBIN)/bin/kind
+else
+KIND = $(shell which kind)
+endif
+endif
+
+OLM_VERSION ?= v0.28.0
+KIND_CONFIG ?= test/e2e/kind-config.yaml
+
+# Create a kind cluster, install ingress-nginx, and wait for it to be available.
+.PHONY: kind-create
+kind-create: kind ## Create a kind cluster.
+	$(KIND) create cluster --config $(KIND_CONFIG) --image $(KIND_IMAGE) --name $(KIND_CLUSTER_NAME) --kubeconfig $(KIND_KUBECONFIG) --wait 120s
+	KUBECONFIG=$(KIND_KUBECONFIG) make kind-setup
+
+.PHONY: kind-setup
+kind-setup: kind ## setup kind cluster base environment
+	@echo "\nSetup kind cluster base environment, install ingress-nginx and OLM"
+	kubectl apply -f https://raw.githubusercontent.com/kubernetes/ingress-nginx/main/deploy/static/provider/kind/deploy.yaml
+	kubectl -n ingress-nginx wait deployment ingress-nginx-controller --for=condition=available --timeout=300s
+	curl -sSL https://github.com/operator-framework/operator-lifecycle-manager/releases/download/$(OLM_VERSION)/install.sh | bash -s $(OLM_VERSION)
+
+.PHONY: kind-delete
+kind-delete: kind ## Delete a kind cluster.
+	$(KIND) delete cluster --name $(KIND_CLUSTER_NAME)
+
+# chainsaw
+
+CHAINSAW_VERSION ?= v0.2.6
+CHAINSAW = $(LOCALBIN)/chainsaw
+
+.PHONY: chainsaw
+chainsaw: $(CHAINSAW) ## Download chainsaw locally if necessary.
+$(CHAINSAW): $(LOCALBIN)
+	test -s $(LOCALBIN)/chainsaw && $(LOCALBIN)/chainsaw version | grep -q $(CHAINSAW_VERSION) || \
+	GOBIN=$(LOCALBIN) go install github.com/kyverno/chainsaw@$(CHAINSAW_VERSION)
+
+# chainsaw setup logical
+# - Build the operator docker image
+# - Load the operator docker image into the kind cluster. When create
+#   operator deployment, it will use the image in the kind cluster.
+# - Rebuild the bundle. If override VERSION / REGISTRY or other variables,
+#   we need to rebuild the bundle to use the new image, or other changes.
+.PHONY: chainsaw-setup
+chainsaw-setup: manifests kustomize ## Run the chainsaw setup
+	@echo "\nSetup chainsaw test environment"
+	make docker-build
+	$(KIND) --name $(KIND_CLUSTER_NAME) load docker-image $(IMG)
+	KUBECONFIG=$(KIND_KUBECONFIG) make deploy
+
+.PHONY: chainsaw-test
+chainsaw-test: chainsaw ## Run the chainsaw test
+	$(CHAINSAW) test --cluster cluster-1=$(KIND_KUBECONFIG) --test-dir ./test/e2e
+
+.PHONY: chainsaw-cleanup
+chainsaw-cleanup: manifests kustomize ## Run the chainsaw cleanup
+	KUBECONFIG=$(KIND_KUBECONFIG) make undeploy

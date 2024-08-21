@@ -28,3 +28,7 @@ Dockerfile.cross
 #bundle
 bundle.Dockerfile
 bundle
+
+kind-kubeconfig*
+catalog.Dockerfile
+catalog/
