@@ -9,16 +9,15 @@ import (
 	"github.com/zncdatadev/operator-go/pkg/util"
 
 	supersetv1alpha1 "github.com/zncdatadev/superset-operator/api/v1alpha1"
+	"github.com/zncdatadev/superset-operator/internal/controller/common"
 )
 
 var _ reconciler.RoleReconciler = &Reconciler{}
 
 type Reconciler struct {
 	reconciler.BaseRoleReconciler[*supersetv1alpha1.NodeSpec]
-	ClusterConfig    *supersetv1alpha1.ClusterConfigSpec
-	EnvSecretName    string
-	ConfigSecretName string
-	Image            *util.Image
+	ClusterConfig *supersetv1alpha1.ClusterConfigSpec
+	Image         *util.Image
 }
 
 func NewReconciler(
@@ -26,8 +25,6 @@ func NewReconciler(
 	roleInfo reconciler.RoleInfo,
 	clusterOperation *commonsv1alpha1.ClusterOperationSpec,
 	clusterConfig *supersetv1alpha1.ClusterConfigSpec,
-	envSecretName string,
-	configSecretName string,
 	image *util.Image,
 	spec *supersetv1alpha1.NodeSpec,
 ) *Reconciler {
@@ -38,10 +35,8 @@ func NewReconciler(
 			clusterOperation,
 			spec,
 		),
-		ClusterConfig:    clusterConfig,
-		EnvSecretName:    envSecretName,
-		ConfigSecretName: configSecretName,
-		Image:            image,
+		ClusterConfig: clusterConfig,
+		Image:         image,
 	}
 }
 
@@ -76,12 +71,15 @@ func (r *Reconciler) RegisterResourceWithRoleGroup(ctx context.Context, info rec
 		stopped = true
 	}
 
+	configmapReconciler := common.NewConfigReconciler(
+		r.Client,
+		info,
+	)
+
 	deploymentReconciler, err := NewDeploymentReconciler(
 		r.Client,
 		info,
 		r.ClusterConfig,
-		r.EnvSecretName,
-		r.ConfigSecretName,
 		Ports,
 		r.Image,
 		stopped,
@@ -91,5 +89,5 @@ func (r *Reconciler) RegisterResourceWithRoleGroup(ctx context.Context, info rec
 		return nil, err
 	}
 
-	return []reconciler.Reconciler{deploymentReconciler}, nil
+	return []reconciler.Reconciler{deploymentReconciler, configmapReconciler}, nil
 }

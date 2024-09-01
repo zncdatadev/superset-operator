@@ -5,8 +5,10 @@ import (
 )
 
 const (
-	DefaultRepository     = "quay.io/zncdatadev"
-	DefaultProductVersion = "4.0.1"
+	DefaultRepository      = "quay.io/zncdatadev"
+	DefaultProductVersion  = "4.0.2"
+	DefaultPlatformVersion = "0.0.0-dev"
+	DefaultProductName     = "superset"
 )
 
 type ImageSpec struct {
@@ -15,13 +17,14 @@ type ImageSpec struct {
 
 	// +kubebuilder:validation:Optional
 	// +kubebuilder:default=quay.io/zncdatadev
-	Repository string `json:"repository,omitempty"`
+	Repo string `json:"repo,omitempty"`
 
 	// +kubebuilder:validation:Optional
-	StackVersion string `json:"stackVersion,omitempty"`
+	// +kubebuilder:default="0.0.0-dev"
+	PlatformVersion string `json:"platformVersion,omitempty"`
 
 	// +kubebuilder:validation:Optional
-	// +kubebuilder:default="4.0.1"
+	// +kubebuilder:default="4.0.2"
 	ProductVersion string `json:"productVersion,omitempty"`
 
 	// +kubebuilder:validation:Optional

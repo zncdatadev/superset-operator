@@ -1,21 +1,27 @@
 package v1alpha1
 
 type ClusterConfigSpec struct {
-	// +kubebuilder:validation:Required
-	Database *DatabaseSpec `json:"database"`
-
-	// +kubebuilder:validation:Required
-	Redis *RedisSpec `json:"redis"`
-
-	// +kubebuilder:validation:Required
-	Administrator *AdministratorSpec `json:"administrator"`
-
 	// +kubebuilder:validation:Optional
-	// This is flask app secret key
-	AppSecretKey *AppSecretKeySpec `json:"appSecretKey,omitempty"`
+	Authentication *AuthenticationSpec `json:"authentication,omitempty"`
+
+	// Superset administrator user credentials and database connection configurations.
+	// It must contains the key:
+	//   - `adminUser.username`: The first name of the admin user.
+	//   - `adminUser.firstname`: The first name of the admin user.
+	//   - `adminUser.lastname`: The last name of the admin user.
+	//   - `adminUser.email`: The email of the admin user.
+	//   - `adminUser.password`: The password of the admin user.
+	//   - `appSecretKey`: It is flask app secret key. You can generate by `openssl rand -hex 32`.
+	//   - `connection.sqlalchemyDatabaseUri`: It is the database connection URI. You can use the following format:
+	//     - `postgresql://<username>:<password>@<host>:<port>/<database>`
+	// +kubebuilder:validation:Required
+	CredentialsSecret string `json:"credentialsSecret"`
 
 	// +kubebuilder:validation:Optional
 	ListenerClass string `json:"listenerClass,omitempty"`
+
+	// +kubebuilder:validation:Optional
+	VectorAggregatorConfigMapName string `json:"vectorAggregatorConfigMapName,omitempty"`
 }
 
 // AppSecretKeySpec defines the app secret key spec.
@@ -31,87 +37,29 @@ type AppSecretKeySpec struct {
 	SecretKey string `json:"secretKey,omitempty"`
 }
 
-type AdministratorSpec struct {
-	// +kubebuilder:validation=Optional
-	// +kubebuilder:default="admin"
-	Username string `json:"username,omitempty"`
-	// +kubebuilder:validation=Optional
-	// +kubebuilder:default="Superset"
-	FirstName string `json:"firstName,omitempty"`
-	// +kubebuilder:validation=Optional
-	// +kubebuilder:default="Admin"
-	LastName string `json:"lastName,omitempty"`
-	// +kubebuilder:validation=Optional
-	// +kubebuilder:default="admin@superset"
-	Email string `json:"email,omitempty"`
-	// +kubebuilder:validation=Optional
-	// +kubebuilder:default="admin"
-	Password string `json:"password,omitempty"`
-	// +kubebuilder:validation=Optional
-	// ExistSecret is the name of the secret that contains the administrator info.
-	// It must contain the following keys:
-	// - `ADMIN_USERNAME`
-	// - `ADMIN_FIRST_NAME`
-	// - `ADMIN_LAST_NAME`
-	// - `ADMIN_EMAIL`
-	// - `ADMIN_PASSWORD`
-	ExistSecret string `json:"existSecret,omitempty"`
+// AuthenticationSpec defines the authentication spec.
+type AuthenticationSpec struct {
+	// +kubebuilder:validation:Required
+	AuthenticationClass string `json:"authenticationClass"`
+
+	// +kubebuilder:validation:Optional
+	Oidc *OidcSpec `json:"oidc,omitempty"`
+
+	// +kubebuilder:validation:Optional
+	SyncRolesAt string `json:"syncRolesAt,omitempty"`
+
+	// +kubebuilder:validation:Optional
+	UserRegistration bool `json:"userRegistration,omitempty"`
+
+	// +kubebuilder:validation:Optional
+	UserRegistrationRole string `json:"userRegistrationRole,omitempty"`
 }
 
-// RedisSpec defines the redis spec.
-type RedisSpec struct {
-	// +kubebuilder:validation=Optional
-	// ExistSecret is the name of the secret that contains the Redis password.
-	// If this field is set, the Redis `password` will be read from the secret,
-	// else the password will be read from the Password field.
-	ExistSecret string `json:"existSecret,omitempty"`
-	// +kubebuilder:validation=Required
-	Host string `json:"host"`
-	// +kubebuilder:validation=Optional
-	// +kubebuilder:default=6379
-	Port int32 `json:"port,omitempty"`
-	// +kubebuilder:validation=Optional
-	User string `json:"user,omitempty"`
-	// +kubebuilder:validation=Optional
-	Password string `json:"password,omitempty"`
-	// +kubebuilder:validation=Optional
-	// +kubebuilder:default="redis"
-	Proto string `json:"proto,omitempty"`
-	// +kubebuilder:validation=Optional
-	// +kubebuilder:default=0
-	DB int32 `json:"db,omitempty"`
-}
+// OidcSpec defines the OIDC spec.
+type OidcSpec struct {
+	// +kubebuilder:validation:Required
+	ClientCredentialsSecret string `json:"clientCredentialsSecret"`
 
-type DatabaseSpec struct {
-	// +kubebuilder:validation=Optional
-	Reference *string `json:"reference,omitempty"`
-
-	// +kubebuilder:validation=Optional
-	Inline *DatabaseInlineSpec `json:"inline,omitempty"`
-}
-
-// DatabaseInlineSpec defines the inline database spec.
-type DatabaseInlineSpec struct {
-	// +kubebuilder:validation:Enum=mysql;postgres
-	// +kubebuilder:default="postgres"
-	Driver string `json:"driver,omitempty"`
-
-	// +kubebuilder:validation=Optional
-	// +kubebuilder:default="superset"
-	DatabaseName string `json:"databaseName,omitempty"`
-
-	// +kubebuilder:validation=Optional
-	// +kubebuilder:default="superset"
-	Username string `json:"username,omitempty"`
-
-	// +kubebuilder:validation=Optional
-	// +kubebuilder:default="superset"
-	Password string `json:"password,omitempty"`
-
-	// +kubebuilder:validation=Required
-	Host string `json:"host,omitempty"`
-
-	// +kubebuilder:validation=Optional
-	// +kubebuilder:default=5432
-	Port int32 `json:"port,omitempty"`
+	// +kubebuilder:validation:Optional
+	ExtraScopes []string `json:"extraScopes,omitempty"`
 }

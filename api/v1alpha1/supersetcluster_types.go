@@ -27,7 +27,6 @@ type SupersetClusterSpec struct {
 	ClusterConfig    *ClusterConfigSpec                `json:"clusterConfig"`
 	ClusterOperation *apiv1alpha1.ClusterOperationSpec `json:"clusterOperation,omitempty"`
 	Node             *NodeSpec                         `json:"node"`
-	Worker           *WorkerSpec                       `json:"worker"`
 }
 
 // SupersetClusterStatus defines the observed state of SupersetCluster

@@ -17,10 +17,9 @@ type NodeSpec struct {
 
 type NodeConfigSpec struct {
 	Affinity                *corev1.Affinity                     `json:"affinity,omitempty"`
-	Tolerations             []corev1.Toleration                  `json:"tolerations,omitempty"`
 	PodDisruptionBudget     *apiv1alpha1.PodDisruptionBudgetSpec `json:"podDisruptionBudget,omitempty"`
 	GracefulShutdownTimeout string                               `json:"gracefulShutdownTimeoutSeconds,omitempty"`
-	Logging                 *apiv1alpha1.LoggingConfigSpec       `json:"logging,omitempty"`
+	Logging                 *LoggingSpec                         `json:"logging,omitempty"`
 	Resources               *apiv1alpha1.ResourcesSpec           `json:"resources,omitempty"`
 }
 
@@ -35,4 +34,11 @@ type NodeRoleGroupSpec struct {
 }
 
 type NodeConfigOverridesSpec struct {
+}
+
+type LoggingSpec struct {
+	// +kubebuilder:validation:Optional
+	EnableVectorAgent bool `json:"enableVectorAgent,omitempty"`
+	// +kubebuilder:validation:Optional
+	Containers map[string]*apiv1alpha1.LoggingConfigSpec `json:"containers,omitempty"`
 }

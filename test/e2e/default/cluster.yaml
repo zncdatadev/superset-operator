@@ -7,7 +7,7 @@ metadata:
     app.kubernetes.io/part-of: superset-operator
     app.kubernetes.io/managed-by: kustomize
     app.kubernetes.io/created-by: superset-operator
-  name: supersetcluster-sample
+  name: superset
 spec:
   clusterConfig:
     credentialsSecret: superset-credentials
