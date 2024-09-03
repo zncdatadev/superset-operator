@@ -216,7 +216,7 @@ ENVTEST ?= $(LOCALBIN)/setup-envtest
 
 ## Tool Versions
 KUSTOMIZE_VERSION ?= v5.4.2
-CONTROLLER_TOOLS_VERSION ?= v0.15.0
+CONTROLLER_TOOLS_VERSION ?= v0.16.2
 
 .PHONY: kustomize
 kustomize: $(KUSTOMIZE) ## Download kustomize locally if necessary. If wrong version is installed, it will be removed before downloading.
@@ -373,14 +373,29 @@ kind-delete: kind ## Delete a kind cluster.
 
 # chainsaw
 
-CHAINSAW_VERSION ?= v0.2.6
+CHAINSAW_VERSION ?= v0.2.8
 CHAINSAW = $(LOCALBIN)/chainsaw
 
 .PHONY: chainsaw
 chainsaw: $(CHAINSAW) ## Download chainsaw locally if necessary.
 $(CHAINSAW): $(LOCALBIN)
-	test -s $(LOCALBIN)/chainsaw && $(LOCALBIN)/chainsaw version | grep -q $(CHAINSAW_VERSION) || \
-	GOBIN=$(LOCALBIN) go install github.com/kyverno/chainsaw@$(CHAINSAW_VERSION)
+	@{ \
+	set -xe ;\
+	if test -x $(LOCALBIN)/chainsaw && ! $(LOCALBIN)/chainsaw version | grep $(CHAINSAW_VERSION:v%=%) > /dev/null; then \
+		echo "$(LOCALBIN)/chainsaw version is not expected $(CHAINSAW_VERSION). Removing it before installing."; \
+		rm -rf $(LOCALBIN)/chainsaw; \
+	fi; \
+	if test ! -s $(LOCALBIN)/chainsaw; then \
+		mkdir -p $(dir $(CHAINSAW)) ;\
+		TMP=$(shell mktemp -d) ;\
+		OS=$(shell go env GOOS) && ARCH=$(shell go env GOARCH) && \
+		curl -sSL https://github.com/kyverno/chainsaw/releases/download/$(CHAINSAW_VERSION)/chainsaw_$${OS}_$${ARCH}.tar.gz | tar -xz -C $$TMP ;\
+		mv $$TMP/chainsaw $(CHAINSAW) ;\
+		rm -rf $$TMP ;\
+		chmod +x $(CHAINSAW) ;\
+		touch $(CHAINSAW) ;\
+	fi; \
+	}
 
 # chainsaw setup logical
 # - Build the operator docker image
