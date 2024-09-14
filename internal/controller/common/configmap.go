@@ -105,6 +105,10 @@ class JsonLoggingConfigurator(LoggingConfigurator):
 }
 
 func (b *SupersetConfigMapBuilder) getAuthProvider(ctx context.Context) (*authv1alpha1.AuthenticationProvider, error) {
+	if b.ClusterConfig.Authentication == nil {
+		return nil, nil
+	}
+
 	authClass := &authv1alpha1.AuthenticationClass{
 		ObjectMeta: metav1.ObjectMeta{
 			Name:      b.ClusterConfig.Authentication.AuthenticationClass,
@@ -237,6 +241,9 @@ SUPERSET_WEBSERVER_TIMEOUT = 300
 
 TALISMAN_ENABLED = False
 `
+	if authProvider == nil {
+		return util.IndentTab4Spaces(config)
+	}
 
 	if authProvider.OIDC != nil {
 		config += b.getOIDCConfig(*authProvider.OIDC)

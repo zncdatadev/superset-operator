@@ -1,7 +1,8 @@
 apiVersion: apps/v1
-kind: StatefulSet
+kind: Deployment
 metadata:
-  name: hbase-node-default
+  name: superset-node-default
 status:
   availableReplicas: 1
+  readyReplicas: 1
   replicas: 1

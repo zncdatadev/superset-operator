@@ -7,8 +7,12 @@ spec:
   - try:
     - apply:
         file: postgres.yaml
+    - assert:
+        file: postgres-assert.yaml
   - try:
     - apply:
         file: superset-credentials.yaml
     - apply:
         file: cluster.yaml
+    - assert:
+        file: cluster-assert.yaml
