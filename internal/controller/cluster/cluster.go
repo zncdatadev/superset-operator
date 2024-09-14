@@ -42,7 +42,7 @@ func (r *Reconciler) GetImage() *util.Image {
 		ProductName:     supersetv1alpha1.DefaultProductName,
 		PlatformVersion: supersetv1alpha1.DefaultPlatformVersion,
 		ProductVersion:  supersetv1alpha1.DefaultProductVersion,
-		PullPolicy:      &[]corev1.PullPolicy{corev1.PullIfNotPresent}[0],
+		PullPolicy:      corev1.PullIfNotPresent,
 	}
 
 	if r.Spec.Image != nil {
@@ -50,7 +50,7 @@ func (r *Reconciler) GetImage() *util.Image {
 		image.Repo = r.Spec.Image.Repo
 		image.PlatformVersion = r.Spec.Image.PlatformVersion
 		image.ProductVersion = r.Spec.Image.ProductVersion
-		image.PullPolicy = &r.Spec.Image.PullPolicy
+		image.PullPolicy = r.Spec.Image.PullPolicy
 	}
 	return image
 }

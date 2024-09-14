@@ -1,0 +1,115 @@
+apiVersion: chainsaw.kyverno.io/v1alpha1
+kind: Test
+metadata:
+  name: oidc
+spec:
+  bindings:
+  - name: POSTGRESQL_USERNAME
+    value: superset
+  - name: POSTGRESQL_PASSWORD
+    value: superset
+  - name: KEYCLOAK_REALM
+    value: kubedoop
+  - name: KEYCLOAK_CLIENT_ID
+    value: superset
+  - name: KEYCLOAK_CLIENT_SECRET
+    value: superset
+  - name: SUPERSET_ADMIN_USERNAME
+    value: admin
+  - name: SUPERSET_ADMIN_PASSWORD
+    value: admin
+  - name: SUPERSET_USERNAME
+    value: superset
+  - name: SUPERSET_PASSWORD
+    value: superset
+  steps:
+  - try:
+    - apply:
+        file: ../setup/olm.yaml
+    - assert:
+        file: ../setup/olm-assert.yaml
+  - try:
+    - apply:
+        file: ../setup/subs.yaml
+    - assert:
+        file: ../setup/subs-assert.yaml
+  - try:
+      - apply:
+          file: authenticationclass.yaml
+      - assert:
+          file: authenticationclass.yaml
+  - try:
+    - apply:
+        file: postgres.yaml
+    - assert:
+        file: postgres-assert.yaml
+  - try:
+    - apply:
+        file: keycloak.yaml
+    - script:
+        env:
+          - name: NAMESPACE
+            value: ($namespace)
+          - name: KEYCLOAK_REALM
+            value: ($KEYCLOAK_REALM)
+          - name: SUPERSET_USERNAME
+            value: ($SUPERSET_USERNAME)
+          - name: SUPERSET_PASSWORD
+            value: ($SUPERSET_PASSWORD)
+          - name: SUPERSET_ADMIN_USERNAME
+            value: ($SUPERSET_ADMIN_USERNAME)
+          - name: SUPERSET_ADMIN_PASSWORD
+            value: ($SUPERSET_ADMIN_PASSWORD)
+          - name: KEYCLOAK_CLIENT_ID
+            value: ($KEYCLOAK_CLIENT_ID)
+          - name: KEYCLOAK_CLIENT_SECRET
+            value: ($KEYCLOAK_CLIENT_SECRET)
+        content: |
+          cat keycloak-config.yaml | envsubst | kubectl apply -n $NAMESPACE -f -
+    - assert:
+        file: keycloak-assert.yaml
+  - try:
+    - script:
+        env:
+          - name: NAMESPACE
+            value: ($namespace)
+          - name: POSTGRESQL_USERNAME
+            value: ($POSTGRESQL_USERNAME)
+          - name: POSTGRESQL_PASSWORD
+            value: ($POSTGRESQL_PASSWORD)
+          - name: SUPERSET_ADMIN_USERNAME
+            value: ($SUPERSET_ADMIN_USERNAME)
+          - name: SUPERSET_ADMIN_PASSWORD
+            value: ($SUPERSET_ADMIN_PASSWORD)
+        content: |
+          cat superset-credentials.yaml | envsubst | kubectl apply -n $NAMESPACE -f -
+    - apply:
+        file: superset-oidc-credentials.yaml
+  - try:
+    - apply:
+        file: cluster.yaml
+    - assert:
+        file: cluster-assert.yaml
+    catch:
+    - sleep:
+        duration: 3s
+    - script:
+        env:
+          - name: NAMESPACE
+            value: ($namespace)
+        content: |
+          echo "Show superset-credentials secret"
+          kubectl get -n $NAMESPACE secret/superset-credentials -o jsonpath='{{ range $k, $v := .data }}{{ printf "%s=%s\n" $k ($value | base64decode) }}{{ end }}'
+
+          echo "Show keycloak-config configmap"
+          kubectl get -n $NAMESPACE configmap/keycloak-config -o yaml
+    - podLogs:
+        selector: app=keycloak
+        tail: -1 
+    - describe:
+        apiVersion: v1
+        kind: Pod
+        selector: app.kubernetes.io/instance=superset
+    - podLogs:
+        selector: app.kubernetes.io/instance=superset
+        tail: -1

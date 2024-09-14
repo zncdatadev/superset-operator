@@ -2,12 +2,21 @@ package common
 
 import (
 	"context"
+	"net/url"
+	"path"
+	"strconv"
+	"strings"
 
+	authv1alpha1 "github.com/zncdatadev/operator-go/pkg/apis/authentication/v1alpha1"
 	"github.com/zncdatadev/operator-go/pkg/builder"
 	"github.com/zncdatadev/operator-go/pkg/client"
+	"github.com/zncdatadev/operator-go/pkg/constants"
 	"github.com/zncdatadev/operator-go/pkg/reconciler"
 	"github.com/zncdatadev/operator-go/pkg/util"
+	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 	ctrlclient "sigs.k8s.io/controller-runtime/pkg/client"
+
+	supersetv1alpha1 "github.com/zncdatadev/superset-operator/api/v1alpha1"
 )
 
 const (
@@ -15,13 +24,27 @@ const (
 	SupersetLogFilename    = "log_config.py"
 )
 
+const (
+	DefaultLDAPFieldEmail     = "email"
+	DefaultLDAPFieldGivenName = "givenName"
+	DefaultLDAPFieldGroup     = "memberOf"
+	DefaultLDAPFieldSurname   = "sn"
+	DefaultLDAPFieldUid       = "uid"
+
+	LDAPBindCredentialsUserFilename     = "user"
+	LDAPBindCredentialsPasswordFilename = "password"
+)
+
 type SupersetConfigMapBuilder struct {
 	builder.ConfigMapBuilder
+
+	ClusterConfig *supersetv1alpha1.ClusterConfigSpec
 }
 
 func NewSupersetConfigBuilder(
 	client *client.Client,
 	name string,
+	clusterConfig *supersetv1alpha1.ClusterConfigSpec,
 	options builder.WorkloadOptions,
 ) *SupersetConfigMapBuilder {
 	return &SupersetConfigMapBuilder{
@@ -31,6 +54,7 @@ func NewSupersetConfigBuilder(
 			options.Labels,
 			options.Annotations,
 		),
+		ClusterConfig: clusterConfig,
 	}
 }
 
@@ -75,30 +99,131 @@ class JsonLoggingConfigurator(LoggingConfigurator):
 		rootLogger.setLevel(LOGLEVEL)
 		rootLogger.addHandler(consoleHandler)
 		rootLogger.addHandler(fileHandler)
-	`
+`
 
 	return util.IndentTab4Spaces(config)
 }
 
-func (b *SupersetConfigMapBuilder) getAPPConfig() string {
-	config := `
-import os
+func (b *SupersetConfigMapBuilder) getAuthProvider(ctx context.Context) (*authv1alpha1.AuthenticationProvider, error) {
+	authClass := &authv1alpha1.AuthenticationClass{
+		ObjectMeta: metav1.ObjectMeta{
+			Name:      b.ClusterConfig.Authentication.AuthenticationClass,
+			Namespace: b.Client.GetOwnerNamespace(),
+		},
+	}
+	if err := b.Client.Get(ctx, authClass); err != nil {
+		return nil, err
+	}
 
-from flask_appbuilder.security.manager import (
-    AUTH_DB, 
-    AUTH_LDAP,
-    AUTH_OAUTH, 
-    AUTH_OID, 
-    AUTH_REMOTE_USER,
-    )
+	return authClass.Spec.AuthenticationProvider, nil
+
+}
+
+func (b *SupersetConfigMapBuilder) getLDAPConfig(ldapProvider authv1alpha1.LDAPProvider) string {
+
+	server := url.URL{Scheme: "ldap", Host: ldapProvider.Hostname}
+	if ldapProvider.Port != 0 {
+		server.Host += ":" + strconv.Itoa(ldapProvider.Port)
+	}
+
+	ldapFieldUid := DefaultLDAPFieldUid
+	ldapFieldSurname := DefaultLDAPFieldSurname
+	ldapFieldGivenName := DefaultLDAPFieldGivenName
+	ldapFieldEmail := DefaultLDAPFieldEmail
+	ldapFieldGroup := DefaultLDAPFieldGroup
+
+	if ldapProvider.LDAPFieldNames != nil {
+		ldapFieldUid = ldapProvider.LDAPFieldNames.Uid
+		ldapFieldSurname = ldapProvider.LDAPFieldNames.Surname
+		ldapFieldGivenName = ldapProvider.LDAPFieldNames.GivenName
+		ldapFieldEmail = ldapProvider.LDAPFieldNames.Email
+		ldapFieldGroup = ldapProvider.LDAPFieldNames.Group
+	}
+
+	config := `
+# Set the authentication type to OAuth
+AUTH_TYPE = AUTH_LDAP
+
+AUTH_LDAP_SERVER = '` + server.String() + `'
+AUTH_LDAP_SEARCH = '` + ldapProvider.SearchBase + `'
+AUTH_LDAP_SEARCH_FILTER = '` + ldapProvider.SearchFilter + `'
+AUTH_LDAP_UID_FIELD = '` + ldapFieldUid + `'
+AUTH_LDAP_GROUP_FIELD = '` + ldapFieldGroup + `'
+AUTH_LDAP_FIRSTNAME_FIELD = '` + ldapFieldGivenName + `'
+AUTH_LDAP_LASTNAME_FIELD = '` + ldapFieldSurname + `'
+AUTH_LDAP_EMAIL_FIELD = '` + ldapFieldEmail + `'
+`
+
+	if ldapProvider.BindCredentials != nil {
+		mouhtPath := path.Join(constants.KubedoopSecretDir, ldapProvider.BindCredentials.SecretClass)
+		config += `
+with open('` + path.Join(mouhtPath, LDAPBindCredentialsUserFilename) + `', 'r') as f:
+    AUTH_LDAP_BIND_USER = f.readline().strip()
+
+with open('` + path.Join(mouhtPath, LDAPBindCredentialsPasswordFilename) + `', 'r') as f:
+    AUTH_LDAP_BIND_PASSWORD = f.readline().strip()
+`
+	}
+
+	// TODO: Add TLS configuration
+	return util.IndentTab4Spaces(config)
+}
+
+func (b *SupersetConfigMapBuilder) getOIDCConfig(oidcPrivider authv1alpha1.OIDCProvider) string {
+	scopes := []string{"openid", "email", "profile"}
+	issuer := url.URL{
+		Scheme: "http",
+		Host:   oidcPrivider.Hostname,
+		Path:   oidcPrivider.RootPath,
+	}
+
+	if oidcPrivider.Port != 0 {
+		issuer.Host += ":" + strconv.Itoa(oidcPrivider.Port)
+	}
+
+	if b.ClusterConfig.Authentication.Oidc != nil {
+		scopes = append(scopes, b.ClusterConfig.Authentication.Oidc.ExtraScopes...)
+	}
+
+	provisioner := oidcPrivider.Provisioner
+
+	config := `
+# Set the authentication type to OAuth
+AUTH_TYPE = AUTH_OAUTH
+
+AUTH_ROLES_SYNC_AT_LOGIN = False
+AUTH_TYPE = AUTH_OAUTH
+AUTH_USER_REGISTRATION = True
+AUTH_USER_REGISTRATION_ROLE = "Public"
+OAUTH_PROVIDERS = [
+    {   'name': '` + provisioner + `',    # Name of the provider
+        'token_key': 'access_token',    # Name of the token in the response of access_token_url
+        'icon': 'fa-address-card',    # Icon for the provider
+        'remote_app': {
+            'client_id': os.environ.get('CLIENT_ID'),    # Client Id (Identify Superset application)
+            'client_secret': os.environ.get('CLIENT_SECRET'),    # Secret for this Client Id (Identify Superset application)
+            'client_kwargs': {
+                'scope': '` + strings.Join(scopes, " ") + `'               # Scope for the Authorization
+            },
+			'api_base_url': '` + issuer.String() + `/protocol/',    # Base URL for the API
+            'server_metadata_url': '` + issuer.String() + `/.well-known/openid-configuration',
+        }
+    }
+]
+`
+	return util.IndentTab4Spaces(config)
+}
+
+func (b *SupersetConfigMapBuilder) getAPPConfig(authProvider *authv1alpha1.AuthenticationProvider) string {
+	config := `import os
+
+from flask_appbuilder.security.manager import ( AUTH_DB, AUTH_LDAP, AUTH_OAUTH, AUTH_OID, AUTH_REMOTE_USER )
 from superset.stats_logger import StatsdStatsLogger
 
 from log_config import JsonLoggingConfigurator
 
 
 LOGGING_CONFIGURATOR = JsonLoggingConfigurator()
-
-MAPBOX_API_KEY = os.environ.get('MAPBOX_API_KEY', '')
 
 ROW_LIMIT = 10000
 
@@ -111,24 +236,38 @@ STATS_LOGGER = StatsdStatsLogger(host='0.0.0.0', port=9125)
 SUPERSET_WEBSERVER_TIMEOUT = 300
 
 TALISMAN_ENABLED = False
-	`
+`
+
+	if authProvider.OIDC != nil {
+		config += b.getOIDCConfig(*authProvider.OIDC)
+	}
+
+	if authProvider.LDAP != nil {
+		config += b.getLDAPConfig(*authProvider.LDAP)
+	}
 
 	return util.IndentTab4Spaces(config)
 }
 
-func (b *SupersetConfigMapBuilder) Build(_ context.Context) (ctrlclient.Object, error) {
+func (b *SupersetConfigMapBuilder) Build(ctx context.Context) (ctrlclient.Object, error) {
+
+	authProvider, err := b.getAuthProvider(ctx)
+	if err != nil {
+		return nil, err
+	}
+
 	var data = map[string]string{
 		SupersetLogFilename:    b.getLogConfig(),
-		SupersetConfigFilename: b.getAPPConfig(),
+		SupersetConfigFilename: b.getAPPConfig(authProvider),
 	}
 
 	b.AddData(data)
-
 	return b.GetObject(), nil
 }
 
 func NewConfigReconciler(
 	client *client.Client,
+	clusterConfig *supersetv1alpha1.ClusterConfigSpec,
 	roleGroupInfo reconciler.RoleGroupInfo,
 ) *reconciler.SimpleResourceReconciler[builder.ConfigBuilder] {
 
@@ -143,6 +282,7 @@ func NewConfigReconciler(
 	supersetConfigSecretBuilder := NewSupersetConfigBuilder(
 		client,
 		roleGroupInfo.GetFullName(),
+		clusterConfig,
 		options,
 	)
 

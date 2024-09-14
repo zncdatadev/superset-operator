@@ -3,12 +3,17 @@ package common
 import (
 	"context"
 	"fmt"
+	"path"
+	"strings"
 
+	authv1alpha1 "github.com/zncdatadev/operator-go/pkg/apis/authentication/v1alpha1"
 	"github.com/zncdatadev/operator-go/pkg/builder"
 	"github.com/zncdatadev/operator-go/pkg/client"
 	"github.com/zncdatadev/operator-go/pkg/constants"
 	"github.com/zncdatadev/operator-go/pkg/util"
 	corev1 "k8s.io/api/core/v1"
+	"k8s.io/apimachinery/pkg/api/resource"
+	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 	ctrlclient "sigs.k8s.io/controller-runtime/pkg/client"
 
 	supersetv1alpha1 "github.com/zncdatadev/superset-operator/api/v1alpha1"
@@ -120,7 +125,7 @@ wait_for_termination $!
 
 
 mkdir -p /kubedoop/log/_vector/ && touch /kubedoop/log/_vector/shutdown
-	`
+`
 
 	return util.IndentTab4Spaces(cmds)
 }
@@ -162,7 +167,7 @@ wait_for_termination()
 prepare_signal_handlers
 /kubedoop/bin/statsd-exporter &
 wait_for_termination $!
-	`
+`
 	return util.IndentTab4Spaces(cmds)
 }
 
@@ -180,7 +185,7 @@ func (b *DeploymentBuilder) getAppPort() int32 {
 func (b *DeploymentBuilder) GetMetricsContainer() builder.ContainerBuilder {
 	containerBuilder := builder.NewContainer(
 		"metrics",
-		b.GetImageWithTag(),
+		b.GetImage(),
 	)
 	containerBuilder.SetCommand([]string{"sh", "-x", "-c"})
 	containerBuilder.SetArgs([]string{b.GetInitContainerCommands()})
@@ -190,7 +195,7 @@ func (b *DeploymentBuilder) GetMetricsContainer() builder.ContainerBuilder {
 func (b *DeploymentBuilder) GetMainContainer() builder.ContainerBuilder {
 	containerBuilder := builder.NewContainer(
 		b.RoleName,
-		b.GetImageWithTag(),
+		b.GetImage(),
 	)
 	containerBuilder.SetCommand([]string{"sh", "-x", "-c"})
 	containerBuilder.SetArgs([]string{b.GetMainCommands()})
@@ -205,6 +210,10 @@ func (b *DeploymentBuilder) GetMainContainer() builder.ContainerBuilder {
 
 	if b.ClusterConfig.CredentialsSecret != "" {
 		InjectCredentials(b.ClusterConfig.CredentialsSecret, containerBuilder)
+	}
+
+	if b.ClusterConfig.Authentication != nil && b.ClusterConfig.Authentication.Oidc != nil {
+		containerBuilder.AddEnvFromSecret(b.ClusterConfig.Authentication.Oidc.ClientCredentialsSecret)
 	}
 
 	return containerBuilder
@@ -224,6 +233,86 @@ func (b *DeploymentBuilder) GetDefaultAffinityBuilder() *AffinityBuilder {
 	return affinity
 }
 
+func (b *DeploymentBuilder) addAuthLdapCredentials(ctx context.Context) error {
+	if b.ClusterConfig.Authentication == nil || b.ClusterConfig.Authentication.AuthenticationClass == "" {
+		return nil
+	}
+	authClass := &authv1alpha1.AuthenticationClass{
+		ObjectMeta: metav1.ObjectMeta{
+			Name:      b.ClusterConfig.Authentication.AuthenticationClass,
+			Namespace: b.Client.GetOwnerNamespace(),
+		},
+	}
+	if err := b.Client.Get(ctx, authClass); err != nil {
+		return err
+	}
+
+	if authClass.Spec.AuthenticationProvider.LDAP == nil {
+		return nil
+	}
+
+	ldapProvider := authClass.Spec.AuthenticationProvider.LDAP
+
+	credentials := ldapProvider.BindCredentials
+
+	scopes := []string{}
+
+	if credentials.Scope != nil {
+		if credentials.Scope.Node {
+			scopes = append(scopes, "node")
+		}
+		if credentials.Scope.Pod {
+			scopes = append(scopes, "pod")
+		}
+		if len(credentials.Scope.Services) > 0 {
+			scopes = append(scopes, credentials.Scope.Services...)
+		}
+
+	}
+
+	b.addSecretVolume("ldap-bind-credentials", credentials.SecretClass, scopes)
+
+	return nil
+
+}
+
+func (b *DeploymentBuilder) addSecretVolume(name string, secretClass string, scopes []string) {
+	secretVolume := &corev1.Volume{
+		Name: name,
+		VolumeSource: corev1.VolumeSource{
+			Ephemeral: &corev1.EphemeralVolumeSource{
+				VolumeClaimTemplate: &corev1.PersistentVolumeClaimTemplate{
+					ObjectMeta: metav1.ObjectMeta{
+						Annotations: map[string]string{
+							constants.AnnotationSecretsClass: secretClass,
+							constants.AnnotationSecretsScope: strings.Join(scopes, constants.CommonDelimiter),
+						},
+					},
+					Spec: corev1.PersistentVolumeClaimSpec{
+						AccessModes:      []corev1.PersistentVolumeAccessMode{"ReadWriteOnce"},
+						StorageClassName: constants.SecretStorageClassPtr(),
+						Resources: corev1.VolumeResourceRequirements{
+							Requests: corev1.ResourceList{
+								corev1.ResourceStorage: resource.MustParse("1Mi"),
+							},
+						},
+					},
+				},
+			},
+		},
+	}
+
+	b.AddVolume(secretVolume)
+
+	secretVolumeMount := &corev1.VolumeMount{
+		Name:      name,
+		MountPath: path.Join(constants.KubedoopSecretDir, secretClass),
+		ReadOnly:  true,
+	}
+
+	b.GetMainContainer().AddVolumeMount(secretVolumeMount)
+}
+
 func (b *DeploymentBuilder) Build(ctx context.Context) (ctrlclient.Object, error) {
 	b.AddContainer(b.GetMainContainer().Build())
 	b.AddVolume(
@@ -239,5 +328,9 @@ func (b *DeploymentBuilder) Build(ctx context.Context) (ctrlclient.Object, error
 	)
 	b.AddContainer(b.GetMetricsContainer().Build())
 	b.SetAffinity(b.GetDefaultAffinityBuilder().Build())
+
+	if err := b.addAuthLdapCredentials(ctx); err != nil {
+		return nil, err
+	}
 	return b.GetObject()
 }
