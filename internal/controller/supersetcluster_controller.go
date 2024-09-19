@@ -21,12 +21,14 @@ import (
 
 	"github.com/zncdatadev/operator-go/pkg/client"
 	"github.com/zncdatadev/operator-go/pkg/reconciler"
-	supersetv1alpha1 "github.com/zncdatadev/superset-operator/api/v1alpha1"
-	"github.com/zncdatadev/superset-operator/internal/controller/cluster"
+
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 	"k8s.io/apimachinery/pkg/runtime"
 	ctrl "sigs.k8s.io/controller-runtime"
 	k8sClient "sigs.k8s.io/controller-runtime/pkg/client"
+
+	supersetv1alpha1 "github.com/zncdatadev/superset-operator/api/v1alpha1"
+	"github.com/zncdatadev/superset-operator/internal/controller/cluster"
 )
 
 // SupersetClusterReconciler reconciles a SupersetCluster object
@@ -45,6 +47,8 @@ var (
 // +kubebuilder:rbac:groups=core,resources=configmaps,verbs=get;list;watch;create;update;patch;delete
 // +kubebuilder:rbac:groups=core,resources=secrets,verbs=get;list;watch;create;update;patch;delete
 // +kubebuilder:rbac:groups=core,resources=services,verbs=get;list;watch;create;update;patch;delete
+// +kubebuilder:rbac:groups=authentication.zncdata.dev,resources=authenticationclasses,verbs=get;list;watch
+// +kubebuilder:rbac:groups=apps,resources=deployments,verbs=get;list;watch;create;update;patch;delete
 
 func (r *SupersetClusterReconciler) Reconcile(ctx context.Context, req ctrl.Request) (ctrl.Result, error) {
 
@@ -80,12 +84,16 @@ func (r *SupersetClusterReconciler) Reconcile(ctx context.Context, req ctrl.Requ
 		return ctrl.Result{}, err
 	}
 
-	if result := clusterRreconciler.Reconcile(ctx); result.RequeueOrNot() {
-		return result.CtrlResult()
+	if result, err := clusterRreconciler.Reconcile(ctx); err != nil {
+		return result, err
+	} else if !result.IsZero() {
+		return result, nil
 	}
 
-	if result := clusterRreconciler.Ready(ctx); result.RequeueOrNot() {
-		return result.CtrlResult()
+	if result, err := clusterRreconciler.Ready(ctx); err != nil {
+		return result, err
+	} else if !result.IsZero() {
+		return result, nil
 	}
 
 	logger.V(0).Info("Reconcile completed")

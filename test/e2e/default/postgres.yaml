@@ -3,29 +3,29 @@
 apiVersion: v1
 kind: Secret
 metadata:
-  name: superset-postgres
+  name: postgres
 type: Opaque
-data:
-  POSTGRESQL_PASSWORD: c3VwZXJzZXQ= # superset
-  POSTGRESQL_USERNAME: c3VwZXJzZXQ= # superset
+stringData:
+  POSTGRESQL_PASSWORD: superset
+  POSTGRESQL_USERNAME: superset
 
 ---
 apiVersion: apps/v1
 kind: Deployment
 metadata:
-  name: superset-postgres
+  name: postgres
 spec:
   replicas: 1
   selector:
     matchLabels:
-      app: superset-postgres
+      app: postgres
   template:
     metadata:
       labels:
-        app: superset-postgres
+        app: postgres
     spec:
       containers:
-        - name: superset-postgres
+        - name: postgres
           image: registry.access.redhat.com/rhel9/postgresql-16:1-25.1724037700
           ports:
             - containerPort: 5432
@@ -34,12 +34,12 @@ spec:
             - name: POSTGRESQL_USER
               valueFrom:
                 secretKeyRef:
-                  name: superset-postgres
+                  name: postgres
                   key: POSTGRESQL_USERNAME
             - name: POSTGRESQL_PASSWORD
               valueFrom:
                 secretKeyRef:
-                  name: superset-postgres
+                  name: postgres
                   key: POSTGRESQL_PASSWORD
             - name: POSTGRESQL_DATABASE
               value: superset
@@ -54,10 +54,10 @@ spec:
 apiVersion: v1
 kind: Service
 metadata:
-  name: superset-postgres
+  name: postgres
 spec:
   selector:
-    app: superset-postgres
+    app: postgres
   ports:
   - port: 5432
     targetPort: tcp

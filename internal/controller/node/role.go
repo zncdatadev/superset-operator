@@ -73,6 +73,7 @@ func (r *Reconciler) RegisterResourceWithRoleGroup(ctx context.Context, info rec
 
 	configmapReconciler := common.NewConfigReconciler(
 		r.Client,
+		r.ClusterConfig,
 		info,
 	)
 
@@ -89,5 +90,5 @@ func (r *Reconciler) RegisterResourceWithRoleGroup(ctx context.Context, info rec
 		return nil, err
 	}
 
-	return []reconciler.Reconciler{deploymentReconciler, configmapReconciler}, nil
+	return []reconciler.Reconciler{configmapReconciler, deploymentReconciler}, nil
 }

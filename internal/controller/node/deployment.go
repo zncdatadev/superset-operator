@@ -72,19 +72,3 @@ func NewDeploymentReconciler(
 		stopped,
 	), nil
 }
-
-// func addAffinityToStatefulSetBuilder(objectBuilder *common.DeploymentBuilder, specAffinity *corev1.Affinity,
-// 	instanceName string, roleName string) {
-// 	antiAffinityLabels := metav1.LabelSelector{
-// 		MatchLabels: map[string]string{
-// 			reconciler.LabelInstance:  instanceName,
-// 			reconciler.LabelServer:    "superset",
-// 			reconciler.LabelComponent: roleName,
-// 		},
-// 	}
-// 	defaultAffinityBuilder := builder.AffinityBuilder{PodAffinity: []*builder.PodAffinity{
-// 		builder.NewPodAffinity(builder.StrengthPrefer, true, antiAffinityLabels).Weight(70),
-// 	}}
-
-// 	objectBuilder.Affinity(specAffinity, defaultAffinityBuilder.Build())
-// }

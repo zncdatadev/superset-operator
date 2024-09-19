@@ -1,0 +1,15 @@
+apiVersion: superset.zncdata.dev/v1alpha1
+kind: SupersetCluster
+metadata:
+  name: superset
+spec:
+  clusterConfig:
+    authentication:
+      authenticationClass: oidc
+      oidc:
+        clientCredentialsSecret: oidc-credentials
+    credentialsSecret: superset-credentials
+  node:
+    roleGroups:
+      default:
+        replicas: 1

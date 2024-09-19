@@ -21,6 +21,7 @@ import (
 	"os"
 	"strings"
 
+	authv1alpha1 "github.com/zncdatadev/operator-go/pkg/apis/authentication/v1alpha1"
 	"k8s.io/apimachinery/pkg/runtime"
 	utilruntime "k8s.io/apimachinery/pkg/util/runtime"
 	clientgoscheme "k8s.io/client-go/kubernetes/scheme"
@@ -46,6 +47,8 @@ func init() {
 
 	utilruntime.Must(supersetv1alpha1.AddToScheme(scheme))
 	//+kubebuilder:scaffold:scheme
+
+	utilruntime.Must(authv1alpha1.AddToScheme(scheme))
 }
 
 func main() {
