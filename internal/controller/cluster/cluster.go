@@ -40,7 +40,7 @@ func (r *Reconciler) GetImage() *util.Image {
 	image := &util.Image{
 		Repo:            supersetv1alpha1.DefaultRepository,
 		ProductName:     supersetv1alpha1.DefaultProductName,
-		PlatformVersion: supersetv1alpha1.DefaultPlatformVersion,
+		KubedoopVersion: supersetv1alpha1.DefaultKubedoopVersion,
 		ProductVersion:  supersetv1alpha1.DefaultProductVersion,
 		PullPolicy:      corev1.PullIfNotPresent,
 	}
@@ -48,7 +48,7 @@ func (r *Reconciler) GetImage() *util.Image {
 	if r.Spec.Image != nil {
 		image.Custom = r.Spec.Image.Custom
 		image.Repo = r.Spec.Image.Repo
-		image.PlatformVersion = r.Spec.Image.PlatformVersion
+		image.KubedoopVersion = r.Spec.Image.KubedoopVersion
 		image.ProductVersion = r.Spec.Image.ProductVersion
 		image.PullPolicy = r.Spec.Image.PullPolicy
 	}
@@ -59,12 +59,12 @@ func (r *Reconciler) RegisterResources(ctx context.Context) error {
 
 	node := node.NewReconciler(
 		r.Client,
+		r.IsStopped(),
+		r.ClusterConfig,
 		reconciler.RoleInfo{
 			ClusterInfo: r.ClusterInfo,
 			RoleName:    "node",
 		},
-		r.GetClusterOperation(),
-		r.ClusterConfig,
 		r.GetImage(),
 		r.Spec.Node,
 	)

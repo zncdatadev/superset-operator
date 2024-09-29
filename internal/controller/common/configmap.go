@@ -115,7 +115,7 @@ func (b *SupersetConfigMapBuilder) getAuthProvider(ctx context.Context) (*authv1
 			Namespace: b.Client.GetOwnerNamespace(),
 		},
 	}
-	if err := b.Client.Get(ctx, authClass); err != nil {
+	if err := b.Client.GetWithObject(ctx, authClass); err != nil {
 		return nil, err
 	}
 

@@ -7,7 +7,7 @@ import (
 const (
 	DefaultRepository      = "quay.io/zncdatadev"
 	DefaultProductVersion  = "4.0.2"
-	DefaultPlatformVersion = "0.0.0-dev"
+	DefaultKubedoopVersion = "0.0.0-dev"
 	DefaultProductName     = "superset"
 )
 
@@ -21,7 +21,7 @@ type ImageSpec struct {
 
 	// +kubebuilder:validation:Optional
 	// +kubebuilder:default="0.0.0-dev"
-	PlatformVersion string `json:"platformVersion,omitempty"`
+	KubedoopVersion string `json:"kubedoopVersion,omitempty"`
 
 	// +kubebuilder:validation:Optional
 	// +kubebuilder:default="4.0.2"
