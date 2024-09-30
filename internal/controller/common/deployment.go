@@ -243,7 +243,7 @@ func (b *DeploymentBuilder) addAuthLdapCredentials(ctx context.Context) error {
 			Namespace: b.Client.GetOwnerNamespace(),
 		},
 	}
-	if err := b.Client.Get(ctx, authClass); err != nil {
+	if err := b.Client.GetWithObject(ctx, authClass); err != nil {
 		return err
 	}
 

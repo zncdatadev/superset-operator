@@ -3,7 +3,6 @@ package node
 import (
 	"context"
 
-	commonsv1alpha1 "github.com/zncdatadev/operator-go/pkg/apis/commons/v1alpha1"
 	resourceClient "github.com/zncdatadev/operator-go/pkg/client"
 	"github.com/zncdatadev/operator-go/pkg/reconciler"
 	"github.com/zncdatadev/operator-go/pkg/util"
@@ -22,17 +21,17 @@ type Reconciler struct {
 
 func NewReconciler(
 	client *resourceClient.Client,
-	roleInfo reconciler.RoleInfo,
-	clusterOperation *commonsv1alpha1.ClusterOperationSpec,
+	clusterStopped bool,
 	clusterConfig *supersetv1alpha1.ClusterConfigSpec,
+	roleInfo reconciler.RoleInfo,
 	image *util.Image,
 	spec *supersetv1alpha1.NodeSpec,
 ) *Reconciler {
 	return &Reconciler{
 		BaseRoleReconciler: *reconciler.NewBaseRoleReconciler(
 			client,
+			clusterStopped,
 			roleInfo,
-			clusterOperation,
 			spec,
 		),
 		ClusterConfig: clusterConfig,
@@ -65,12 +64,6 @@ func (r *Reconciler) RegisterResources(ctx context.Context) error {
 
 func (r *Reconciler) RegisterResourceWithRoleGroup(ctx context.Context, info reconciler.RoleGroupInfo, spec *supersetv1alpha1.NodeRoleGroupSpec) ([]reconciler.Reconciler, error) {
 
-	stopped := false
-
-	if r.ClusterOperation != nil && r.ClusterOperation.Stopped {
-		stopped = true
-	}
-
 	configmapReconciler := common.NewConfigReconciler(
 		r.Client,
 		r.ClusterConfig,
@@ -83,7 +76,7 @@ func (r *Reconciler) RegisterResourceWithRoleGroup(ctx context.Context, info rec
 		r.ClusterConfig,
 		Ports,
 		r.Image,
-		stopped,
+		r.ClusterStopped,
 		spec,
 	)
 	if err != nil {
