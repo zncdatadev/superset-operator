@@ -19,6 +19,11 @@ import (
 	supersetv1alpha1 "github.com/zncdatadev/superset-operator/api/v1alpha1"
 )
 
+var (
+	LogVolumeName    = "log"
+	ConfigVolumeName = "config"
+)
+
 var _ builder.DeploymentBuilder = &DeploymentBuilder{}
 
 type DeploymentBuilder struct {
@@ -206,7 +211,7 @@ func (b *DeploymentBuilder) GetMainContainer() builder.ContainerBuilder {
 		{Name: "SUPERSET_PORT", Value: fmt.Sprintf("%d", b.getAppPort())},
 	})
 
-	containerBuilder.AddVolumeMount(&corev1.VolumeMount{Name: "superset-config", MountPath: "/kubedoop/mount/config", ReadOnly: true})
+	containerBuilder.AddVolumeMount(&corev1.VolumeMount{Name: ConfigVolumeName, MountPath: "/kubedoop/mount/config", ReadOnly: true})
 
 	if b.ClusterConfig.CredentialsSecret != "" {
 		InjectCredentials(b.ClusterConfig.CredentialsSecret, containerBuilder)
@@ -314,10 +319,11 @@ func (b *DeploymentBuilder) addSecretVolume(name string, secretClass string, sco
 }
 
 func (b *DeploymentBuilder) Build(ctx context.Context) (ctrlclient.Object, error) {
+
 	b.AddContainer(b.GetMainContainer().Build())
 	b.AddVolume(
 		&corev1.Volume{
-			Name: "superset-config",
+			Name: ConfigVolumeName,
 			VolumeSource: corev1.VolumeSource{
 				ConfigMap: &corev1.ConfigMapVolumeSource{
 					DefaultMode:          &[]int32{420}[0],
@@ -332,5 +338,21 @@ func (b *DeploymentBuilder) Build(ctx context.Context) (ctrlclient.Object, error
 	if err := b.addAuthLdapCredentials(ctx); err != nil {
 		return nil, err
 	}
-	return b.GetObject()
+
+	obj, err := b.GetObject()
+	if err != nil {
+		return nil, err
+	}
+
+	if b.ClusterConfig != nil && b.ClusterConfig.VectorAggregatorConfigMapName != "" {
+		builder.NewVectorDecorator(
+			obj,
+			b.GetImage(),
+			LogVolumeName,
+			ConfigVolumeName,
+			b.ClusterConfig.VectorAggregatorConfigMapName,
+		)
+	}
+
+	return obj, nil
 }
