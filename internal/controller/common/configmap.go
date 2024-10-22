@@ -11,6 +11,7 @@ import (
 	"github.com/zncdatadev/operator-go/pkg/builder"
 	"github.com/zncdatadev/operator-go/pkg/client"
 	"github.com/zncdatadev/operator-go/pkg/constants"
+	"github.com/zncdatadev/operator-go/pkg/productlogging"
 	"github.com/zncdatadev/operator-go/pkg/reconciler"
 	"github.com/zncdatadev/operator-go/pkg/util"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
@@ -22,6 +23,10 @@ import (
 const (
 	SupersetConfigFilename = "superset_config.py"
 	SupersetLogFilename    = "log_config.py"
+)
+
+var (
+	SupersetLogPath = path.Join(constants.KubedoopLogDir, "superset")
 )
 
 const (
@@ -39,6 +44,10 @@ type SupersetConfigMapBuilder struct {
 	builder.ConfigMapBuilder
 
 	ClusterConfig *supersetv1alpha1.ClusterConfigSpec
+
+	ClusterName   string
+	RoleName      string
+	RoleGroupName string
 }
 
 func NewSupersetConfigBuilder(
@@ -55,7 +64,30 @@ func NewSupersetConfigBuilder(
 			options.Annotations,
 		),
 		ClusterConfig: clusterConfig,
+		ClusterName:   options.ClusterName,
+		RoleName:      options.RoleName,
+		RoleGroupName: options.RoleGroupName,
 	}
+}
+
+func (b *SupersetConfigMapBuilder) getVectorConfig(ctx context.Context) (string, error) {
+	if b.ClusterConfig != nil && b.ClusterConfig.VectorAggregatorConfigMapName != "" {
+		s, err := productlogging.MakeVectorYaml(
+			ctx,
+			b.Client.Client,
+			b.Client.GetOwnerNamespace(),
+			b.ClusterName,
+			b.RoleName,
+			b.RoleGroupName,
+			b.ClusterConfig.VectorAggregatorConfigMapName,
+		)
+		if err != nil {
+			return "", err
+		}
+		return s, nil
+	}
+
+	return "", nil
 }
 
 func (b *SupersetConfigMapBuilder) getLogConfig() string {
@@ -69,7 +101,7 @@ from pythonjsonlogger import jsonlogger
 
 from superset.utils.logging_configurator import LoggingConfigurator
 
-LOGDIR = Path('/kubedoop/log/superset')
+LOGDIR = ` + SupersetLogPath + `
 
 os.makedirs(LOGDIR, exist_ok=True)
 
@@ -263,12 +295,14 @@ func (b *SupersetConfigMapBuilder) Build(ctx context.Context) (ctrlclient.Object
 		return nil, err
 	}
 
-	var data = map[string]string{
-		SupersetLogFilename:    b.getLogConfig(),
-		SupersetConfigFilename: b.getAPPConfig(authProvider),
-	}
+	b.AddItem(SupersetLogFilename, b.getLogConfig())
+	b.AddItem(SupersetConfigFilename, b.getAPPConfig(authProvider))
 
-	b.AddData(data)
+	vectorConfig, err := b.getVectorConfig(ctx)
+	if err != nil {
+		return nil, err
+	}
+	b.AddItem(builder.VectorConfigFile, vectorConfig)
 	return b.GetObject(), nil
 }
 
