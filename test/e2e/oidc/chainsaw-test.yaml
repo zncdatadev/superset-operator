@@ -24,16 +24,6 @@ spec:
     value: superset
   steps:
   - try:
-    - apply:
-        file: ../setup/olm.yaml
-    - assert:
-        file: ../setup/olm-assert.yaml
-  - try:
-    - apply:
-        file: ../setup/subs.yaml
-    - assert:
-        file: ../setup/subs-assert.yaml
-  - try:
       - apply:
           file: authenticationclass.yaml
       - assert:
@@ -105,7 +95,7 @@ spec:
           kubectl get -n $NAMESPACE configmap/keycloak-config -o yaml
     - podLogs:
         selector: app=keycloak
-        tail: -1 
+        tail: -1
     - describe:
         apiVersion: v1
         kind: Pod
