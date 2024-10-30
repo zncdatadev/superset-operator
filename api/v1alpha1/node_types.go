@@ -10,7 +10,7 @@ type NodeSpec struct {
 	Config              *NodeConfigSpec                      `json:"config,omitempty"`
 	PodDisruptionBudget *apiv1alpha1.PodDisruptionBudgetSpec `json:"podDisruptionBudget,omitempty"`
 	PodOverride         *corev1.PodTemplateSpec              `json:"podOverride,omitempty"`
-	CommandOverrides    []string                             `json:"commandOverrides,omitempty"`
+	CliOverrides        []string                             `json:"cliOverrides,omitempty"`
 	EnvOverrides        []string                             `json:"envOverrides,omitempty"`
 	ConfigOverrides     *NodeConfigOverridesSpec             `json:"configOverrides,omitempty"`
 }
@@ -28,7 +28,7 @@ type NodeRoleGroupSpec struct {
 	Config              *NodeConfigSpec                      `json:"config,omitempty"`
 	PodOverride         *corev1.PodTemplateSpec              `json:"podOverride,omitempty"`
 	PodDisruptionBudget *apiv1alpha1.PodDisruptionBudgetSpec `json:"podDisruptionBudget,omitempty"`
-	CommandOverrides    []string                             `json:"commandOverrides,omitempty"`
+	CliOverrides        []string                             `json:"cliOverrides,omitempty"`
 	EnvOverrides        map[string]string                    `json:"envOverrides,omitempty"`
 	ConfigOverrides     *NodeConfigOverridesSpec             `json:"configOverrides,omitempty"`
 }

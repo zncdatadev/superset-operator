@@ -125,7 +125,7 @@ spec:
                 type: object
               node:
                 properties:
-                  commandOverrides:
+                  cliOverrides:
                     items:
                       type: string
                     type: array
@@ -9232,7 +9232,7 @@ spec:
                   roleGroups:
                     additionalProperties:
                       properties:
-                        commandOverrides:
+                        cliOverrides:
                           items:
                             type: string
                           type: array

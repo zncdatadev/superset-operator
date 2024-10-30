@@ -201,8 +201,8 @@ func (in *NodeRoleGroupSpec) DeepCopyInto(out *NodeRoleGroupSpec) {
 		*out = new(commonsv1alpha1.PodDisruptionBudgetSpec)
 		**out = **in
 	}
-	if in.CommandOverrides != nil {
-		in, out := &in.CommandOverrides, &out.CommandOverrides
+	if in.CliOverrides != nil {
+		in, out := &in.CliOverrides, &out.CliOverrides
 		*out = make([]string, len(*in))
 		copy(*out, *in)
 	}
@@ -255,8 +255,8 @@ func (in *NodeSpec) DeepCopyInto(out *NodeSpec) {
 		*out = new(v1.PodTemplateSpec)
 		(*in).DeepCopyInto(*out)
 	}
-	if in.CommandOverrides != nil {
-		in, out := &in.CommandOverrides, &out.CommandOverrides
+	if in.CliOverrides != nil {
+		in, out := &in.CliOverrides, &out.CliOverrides
 		*out = make([]string, len(*in))
 		copy(*out, *in)
 	}

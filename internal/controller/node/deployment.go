@@ -33,7 +33,7 @@ func NewDeploymentReconciler(
 		},
 		PodOverrides:     spec.PodOverride,
 		EnvOverrides:     spec.EnvOverrides,
-		CommandOverrides: spec.CommandOverrides,
+		CommandOverrides: spec.CliOverrides,
 	}
 
 	if spec.Config != nil {
