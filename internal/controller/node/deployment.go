@@ -24,16 +24,16 @@ func NewDeploymentReconciler(
 ) (*reconciler.Deployment, error) {
 
 	options := builder.WorkloadOptions{
-		Options: builder.Options{
+		Option: builder.Option{
 			ClusterName:   roleGroupInfo.ClusterName,
 			RoleName:      roleGroupInfo.RoleName,
 			RoleGroupName: roleGroupInfo.RoleGroupName,
 			Labels:        roleGroupInfo.GetLabels(),
 			Annotations:   roleGroupInfo.GetAnnotations(),
 		},
-		PodOverrides:     spec.PodOverride,
-		EnvOverrides:     spec.EnvOverrides,
-		CommandOverrides: spec.CliOverrides,
+		PodOverrides: spec.PodOverride,
+		EnvOverrides: spec.EnvOverrides,
+		CliOverrides: spec.CliOverrides,
 	}
 
 	if spec.Config != nil {

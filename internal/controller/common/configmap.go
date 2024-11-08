@@ -221,7 +221,7 @@ func (b *SupersetConfigMapBuilder) getOIDCConfig(oidcPrivider authv1alpha1.OIDCP
 		scopes = append(scopes, b.ClusterConfig.Authentication.Oidc.ExtraScopes...)
 	}
 
-	provisioner := oidcPrivider.Provisioner
+	providerHint := oidcPrivider.ProviderHint
 
 	config := `
 # Set the authentication type to OAuth
@@ -232,7 +232,7 @@ AUTH_TYPE = AUTH_OAUTH
 AUTH_USER_REGISTRATION = True
 AUTH_USER_REGISTRATION_ROLE = "Public"
 OAUTH_PROVIDERS = [
-    {   'name': '` + provisioner + `',    # Name of the provider
+    {   'name': '` + providerHint + `',    # Name of the provider
         'token_key': 'access_token',    # Name of the token in the response of access_token_url
         'icon': 'fa-address-card',    # Icon for the provider
         'remote_app': {
@@ -313,7 +313,7 @@ func NewConfigReconciler(
 ) *reconciler.SimpleResourceReconciler[builder.ConfigBuilder] {
 
 	options := builder.WorkloadOptions{
-		Options: builder.Options{
+		Option: builder.Option{
 			ClusterName: roleGroupInfo.GetFullName(),
 			Labels:      roleGroupInfo.GetLabels(),
 			Annotations: roleGroupInfo.GetAnnotations(),
