@@ -154,7 +154,7 @@ func (in *NodeConfigSpec) DeepCopyInto(out *NodeConfigSpec) {
 	if in.PodDisruptionBudget != nil {
 		in, out := &in.PodDisruptionBudget, &out.PodDisruptionBudget
 		*out = new(commonsv1alpha1.PodDisruptionBudgetSpec)
-		**out = **in
+		(*in).DeepCopyInto(*out)
 	}
 	if in.Logging != nil {
 		in, out := &in.Logging, &out.Logging
@@ -199,7 +199,7 @@ func (in *NodeRoleGroupSpec) DeepCopyInto(out *NodeRoleGroupSpec) {
 	if in.PodDisruptionBudget != nil {
 		in, out := &in.PodDisruptionBudget, &out.PodDisruptionBudget
 		*out = new(commonsv1alpha1.PodDisruptionBudgetSpec)
-		**out = **in
+		(*in).DeepCopyInto(*out)
 	}
 	if in.CliOverrides != nil {
 		in, out := &in.CliOverrides, &out.CliOverrides
@@ -245,10 +245,10 @@ func (in *NodeSpec) DeepCopyInto(out *NodeSpec) {
 		*out = new(NodeConfigSpec)
 		(*in).DeepCopyInto(*out)
 	}
-	if in.PodDisruptionBudget != nil {
-		in, out := &in.PodDisruptionBudget, &out.PodDisruptionBudget
-		*out = new(commonsv1alpha1.PodDisruptionBudgetSpec)
-		**out = **in
+	if in.RoleConfig != nil {
+		in, out := &in.RoleConfig, &out.RoleConfig
+		*out = new(commonsv1alpha1.RoleConfigSpec)
+		(*in).DeepCopyInto(*out)
 	}
 	if in.PodOverride != nil {
 		in, out := &in.PodOverride, &out.PodOverride
