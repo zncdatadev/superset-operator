@@ -1,0 +1,20 @@
+apiVersion: superset.zncdata.dev/v1alpha1
+kind: SupersetCluster
+metadata:
+  labels:
+    app.kubernetes.io/name: supersetcluster
+    app.kubernetes.io/instance: supersetcluster-sample
+    app.kubernetes.io/part-of: superset-operator
+    app.kubernetes.io/managed-by: kustomize
+    app.kubernetes.io/created-by: superset-operator
+  name: superset
+spec:
+  clusterConfig:
+    credentialsSecret: superset-credentials
+  node:
+    roleConfig:
+      podDisruptionBudget:
+        maxUnavailable: 1
+    roleGroups:
+      default:
+        replicas: 1
