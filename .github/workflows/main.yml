@@ -55,7 +55,7 @@ jobs:
           cache: false
       - name: golangci-lint
         run: |
-          make lint 
+          make lint
 
 
   chainsaw-test:
@@ -117,7 +117,3 @@ jobs:
     - name: Build and push operator
       run: |
         make docker-buildx
-    - name: Build and push operator bundle
-      run: |
-        make bundle
-        make bundle-buildx
