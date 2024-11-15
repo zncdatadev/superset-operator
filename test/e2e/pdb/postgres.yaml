@@ -26,23 +26,23 @@ spec:
     spec:
       containers:
         - name: postgres
-          image: registry.access.redhat.com/rhel9/postgresql-16:1-25.1724037700
+          image: bitnami/postgresql:16.4.0
           ports:
             - containerPort: 5432
               name: tcp
           env:
-            - name: POSTGRESQL_USER
-              valueFrom:
-                secretKeyRef:
-                  name: postgres
-                  key: POSTGRESQL_USERNAME
-            - name: POSTGRESQL_PASSWORD
-              valueFrom:
-                secretKeyRef:
-                  name: postgres
-                  key: POSTGRESQL_PASSWORD
-            - name: POSTGRESQL_DATABASE
-              value: superset
+          - name: POSTGRESQL_DATABASE
+            value: superset
+          - name: POSTGRESQL_USERNAME
+            valueFrom:
+              secretKeyRef:
+                name: postgres
+                key: POSTGRESQL_USERNAME
+          - name: POSTGRESQL_PASSWORD
+            valueFrom:
+              secretKeyRef:
+                name: postgres
+                key: POSTGRESQL_PASSWORD
           resources:
             requests:
               memory: "64Mi"

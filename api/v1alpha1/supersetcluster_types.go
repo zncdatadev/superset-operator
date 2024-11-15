@@ -34,8 +34,8 @@ type SupersetClusterStatus struct {
 	Conditions []metav1.Condition `json:"conditions,omitempty"`
 }
 
-//+kubebuilder:object:root=true
-//+kubebuilder:subresource:status
+// +kubebuilder:object:root=true
+// +kubebuilder:subresource:status
 
 // SupersetCluster is the Schema for the supersetclusters API
 type SupersetCluster struct {
@@ -46,7 +46,7 @@ type SupersetCluster struct {
 	Status SupersetClusterStatus `json:"status,omitempty"`
 }
 
-//+kubebuilder:object:root=true
+// +kubebuilder:object:root=true
 
 // SupersetClusterList contains a list of SupersetCluster
 type SupersetClusterList struct {
