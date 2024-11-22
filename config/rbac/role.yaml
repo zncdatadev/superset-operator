@@ -31,7 +31,7 @@ rules:
   - update
   - watch
 - apiGroups:
-  - authentication.zncdata.dev
+  - authentication.kubedoop.dev
   resources:
   - authenticationclasses
   verbs:
@@ -51,7 +51,7 @@ rules:
   - update
   - watch
 - apiGroups:
-  - superset.zncdata.dev
+  - superset.kubedoop.dev
   resources:
   - supersetclusters
   verbs:
@@ -63,13 +63,13 @@ rules:
   - update
   - watch
 - apiGroups:
-  - superset.zncdata.dev
+  - superset.kubedoop.dev
   resources:
   - supersetclusters/finalizers
   verbs:
   - update
 - apiGroups:
-  - superset.zncdata.dev
+  - superset.kubedoop.dev
   resources:
   - supersetclusters/status
   verbs:

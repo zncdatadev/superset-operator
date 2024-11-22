@@ -1,4 +1,4 @@
-apiVersion: superset.zncdata.dev/v1alpha1
+apiVersion: superset.kubedoop.dev/v1alpha1
 kind: SupersetCluster
 metadata:
   name: superset

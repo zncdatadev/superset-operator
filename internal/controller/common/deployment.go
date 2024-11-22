@@ -7,9 +7,11 @@ import (
 	"strings"
 
 	authv1alpha1 "github.com/zncdatadev/operator-go/pkg/apis/authentication/v1alpha1"
+	commonsv1alpha1 "github.com/zncdatadev/operator-go/pkg/apis/commons/v1alpha1"
 	"github.com/zncdatadev/operator-go/pkg/builder"
 	"github.com/zncdatadev/operator-go/pkg/client"
 	"github.com/zncdatadev/operator-go/pkg/constants"
+	"github.com/zncdatadev/operator-go/pkg/reconciler"
 	"github.com/zncdatadev/operator-go/pkg/util"
 	corev1 "k8s.io/api/core/v1"
 	"k8s.io/apimachinery/pkg/api/resource"
@@ -36,25 +38,33 @@ type DeploymentBuilder struct {
 
 func NewDeploymentBuilder(
 	client *client.Client,
-	name string,
+	roleGroupInfo reconciler.RoleGroupInfo,
 	clusterConfig *supersetv1alpha1.ClusterConfigSpec,
 	replicas *int32,
 	ports []corev1.ContainerPort,
 	image *util.Image,
-	options builder.WorkloadOptions,
+	overrides *commonsv1alpha1.OverridesSpec,
+	roleGroupConfig *commonsv1alpha1.RoleGroupConfigSpec,
 ) *DeploymentBuilder {
 	return &DeploymentBuilder{
 		Deployment: *builder.NewDeployment(
 			client,
-			name,
+			roleGroupInfo.GetFullName(),
 			replicas,
 			image,
-			options,
+			overrides,
+			roleGroupConfig,
+			func(o *builder.Options) {
+				o.ClusterName = roleGroupInfo.GetClusterName()
+				o.RoleName = roleGroupInfo.GetRoleName()
+				o.Labels = roleGroupInfo.GetLabels()
+				o.Annotations = roleGroupInfo.GetAnnotations()
+			},
 		),
 		ClusterConfig: clusterConfig,
 		Ports:         ports,
-		ClusterName:   options.ClusterName,
-		RoleName:      options.RoleName,
+		ClusterName:   roleGroupInfo.GetClusterName(),
+		RoleName:      roleGroupInfo.GetRoleName(),
 	}
 }
 

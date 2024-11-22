@@ -52,21 +52,22 @@ type SupersetConfigMapBuilder struct {
 
 func NewSupersetConfigBuilder(
 	client *client.Client,
-	name string,
+	roleGroupInfo reconciler.RoleGroupInfo,
 	clusterConfig *supersetv1alpha1.ClusterConfigSpec,
-	options builder.WorkloadOptions,
 ) *SupersetConfigMapBuilder {
 	return &SupersetConfigMapBuilder{
 		ConfigMapBuilder: *builder.NewConfigMapBuilder(
 			client,
-			name,
-			options.Labels,
-			options.Annotations,
+			roleGroupInfo.GetFullName(),
+			func(o *builder.Options) {
+				o.Labels = roleGroupInfo.GetLabels()
+				o.Annotations = roleGroupInfo.GetAnnotations()
+			},
 		),
 		ClusterConfig: clusterConfig,
-		ClusterName:   options.ClusterName,
-		RoleName:      options.RoleName,
-		RoleGroupName: options.RoleGroupName,
+		ClusterName:   roleGroupInfo.ClusterName,
+		RoleName:      roleGroupInfo.RoleName,
+		RoleGroupName: roleGroupInfo.RoleGroupName,
 	}
 }
 
@@ -302,7 +303,7 @@ func (b *SupersetConfigMapBuilder) Build(ctx context.Context) (ctrlclient.Object
 	if err != nil {
 		return nil, err
 	}
-	b.AddItem(builder.VectorConfigFile, vectorConfig)
+	b.AddItem(builder.VectorConfigFileName, vectorConfig)
 	return b.GetObject(), nil
 }
 
@@ -312,24 +313,14 @@ func NewConfigReconciler(
 	roleGroupInfo reconciler.RoleGroupInfo,
 ) *reconciler.SimpleResourceReconciler[builder.ConfigBuilder] {
 
-	options := builder.WorkloadOptions{
-		Option: builder.Option{
-			ClusterName: roleGroupInfo.GetFullName(),
-			Labels:      roleGroupInfo.GetLabels(),
-			Annotations: roleGroupInfo.GetAnnotations(),
-		},
-	}
-
 	supersetConfigSecretBuilder := NewSupersetConfigBuilder(
 		client,
-		roleGroupInfo.GetFullName(),
+		roleGroupInfo,
 		clusterConfig,
-		options,
 	)
 
 	return reconciler.NewSimpleResourceReconciler[builder.ConfigBuilder](
 		client,
-		roleGroupInfo.GetFullName(),
 		supersetConfigSecretBuilder,
 	)
 }
