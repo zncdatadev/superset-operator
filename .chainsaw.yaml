@@ -10,7 +10,7 @@ spec:
     delete: 120s
     error: 180s
     exec: 120s
-  skipDelete: false
+  skipDelete: true
   failFast: true
   parallel: 1
   forceTerminationGracePeriod: 10s

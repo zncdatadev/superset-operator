@@ -26,3 +26,16 @@ Dockerfile.cross
 *~
 
 kind-kubeconfig*
+
+*-local.yaml
+
+# test
+ginkgo.report
+cover.out
+*__debug*
+**/coverage
+
+# ai code local
+.codiumai.toml
+
+**/.cr-release-packages/*
