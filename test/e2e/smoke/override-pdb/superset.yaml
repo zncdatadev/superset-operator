@@ -1,0 +1,50 @@
+apiVersion: superset.kubedoop.dev/v1alpha1
+kind: SupersetCluster
+metadata:
+  name: test-superset
+spec:
+  image:
+    productVersion: ($values.product_version)
+  clusterConfig:
+    listenerClass: external-unstable
+    credentialsSecret: superset-credentials
+  node:
+    roleConfig:
+      podDisruptionBudget:
+        enabled: true
+        maxUnavailable: 1
+    envOverrides:
+      COMMON_VAR: role-value # overridden by role group below
+      ROLE_VAR: role-value   # only defined here at role level
+    configOverrides:
+      superset_config.py:
+        EXPERIMENTAL_FILE_HEADER: |
+          COMMON_HEADER_VAR = "role-value"
+          ROLE_HEADER_VAR = "role-value"
+        EXPERIMENTAL_FILE_FOOTER: |
+          ROLE_FOOTER_VAR = "role-value"
+    roleGroups:
+      default:
+        replicas: 2
+        configOverrides:
+          superset_config.py:
+            EXPERIMENTAL_FILE_HEADER: |
+              COMMON_HEADER_VAR = "group-value"
+        envOverrides:
+          COMMON_VAR: group-value # overrides role value
+          GROUP_VAR: group-value # only defined here at group level
+---
+apiVersion: v1
+kind: Secret
+metadata:
+  name: superset-credentials
+type: Opaque
+stringData:
+  adminUser.username: admin
+  adminUser.password: admin
+  adminUser.email: admin@example.com
+  adminUser.firstname: Superset
+  adminUser.lastname: Superset
+  appSecretKey: superset
+  # in same namespace, can directly use service name to connect
+  connections.sqlalchemyDatabaseUri: postgresql://superset:superset@superset-postgresql:5432/superset

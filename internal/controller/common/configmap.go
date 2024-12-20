@@ -102,7 +102,7 @@ from pythonjsonlogger import jsonlogger
 
 from superset.utils.logging_configurator import LoggingConfigurator
 
-LOGDIR = ` + SupersetLogPath + `
+LOGDIR = Path('` + SupersetLogPath + `')
 
 os.makedirs(LOGDIR, exist_ok=True)
 
@@ -177,10 +177,13 @@ func (b *SupersetConfigMapBuilder) getLDAPConfig(ldapProvider authv1alpha1.LDAPP
 		ldapFieldGroup = ldapProvider.LDAPFieldNames.Group
 	}
 
+	// AUTH_ROLES_MAPPING is a dictionary that maps LDAP groups to Superset roles for ldap permissions.
+	// The key is the LDAP group and the value is the Superset role.
+	// the LDAP group should be created in the LDAP server first, and add the user to the group.
 	config := `
 # Set the authentication type to OAuth
 AUTH_TYPE = AUTH_LDAP
-
+AUTH_USER_REGISTRATION=True
 AUTH_LDAP_SERVER = '` + server.String() + `'
 AUTH_LDAP_SEARCH = '` + ldapProvider.SearchBase + `'
 AUTH_LDAP_SEARCH_FILTER = '` + ldapProvider.SearchFilter + `'
@@ -189,6 +192,10 @@ AUTH_LDAP_GROUP_FIELD = '` + ldapFieldGroup + `'
 AUTH_LDAP_FIRSTNAME_FIELD = '` + ldapFieldGivenName + `'
 AUTH_LDAP_LASTNAME_FIELD = '` + ldapFieldSurname + `'
 AUTH_LDAP_EMAIL_FIELD = '` + ldapFieldEmail + `'
+AUTH_ROLES_MAPPING = {
+	"cn=superset_users,ou=groups,dc=example,dc=com": ["Admin"],
+	"cn=superset_admins,ou=groups,dc=example,dc=com": ["Admin"],
+}
 `
 
 	if ldapProvider.BindCredentials != nil {

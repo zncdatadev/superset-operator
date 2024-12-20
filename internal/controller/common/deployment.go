@@ -11,19 +11,22 @@ import (
 	"github.com/zncdatadev/operator-go/pkg/builder"
 	"github.com/zncdatadev/operator-go/pkg/client"
 	"github.com/zncdatadev/operator-go/pkg/constants"
+	"github.com/zncdatadev/operator-go/pkg/productlogging"
 	"github.com/zncdatadev/operator-go/pkg/reconciler"
 	"github.com/zncdatadev/operator-go/pkg/util"
 	corev1 "k8s.io/api/core/v1"
 	"k8s.io/apimachinery/pkg/api/resource"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
+	"k8s.io/apimachinery/pkg/util/intstr"
 	ctrlclient "sigs.k8s.io/controller-runtime/pkg/client"
 
 	supersetv1alpha1 "github.com/zncdatadev/superset-operator/api/v1alpha1"
 )
 
 var (
-	LogVolumeName    = "log"
+	LogVolumeName    = builder.LogDataVolumeName
 	ConfigVolumeName = "config"
+	MaxLogFileSize   = "10Mi"
 )
 
 var _ builder.DeploymentBuilder = &DeploymentBuilder{}
@@ -221,7 +224,15 @@ func (b *DeploymentBuilder) GetMainContainer() builder.ContainerBuilder {
 		{Name: "SUPERSET_PORT", Value: fmt.Sprintf("%d", b.getAppPort())},
 	})
 
-	containerBuilder.AddVolumeMount(&corev1.VolumeMount{Name: ConfigVolumeName, MountPath: "/kubedoop/mount/config", ReadOnly: true})
+	containerBuilder.AddVolumeMount(&corev1.VolumeMount{
+		Name:      ConfigVolumeName,
+		MountPath: constants.KubedoopConfigDirMount,
+		ReadOnly:  true,
+	})
+	containerBuilder.AddVolumeMount(&corev1.VolumeMount{
+		Name:      LogVolumeName,
+		MountPath: constants.KubedoopLogDir,
+	})
 
 	if b.ClusterConfig.CredentialsSecret != "" {
 		InjectCredentials(b.ClusterConfig.CredentialsSecret, containerBuilder)
@@ -230,6 +241,24 @@ func (b *DeploymentBuilder) GetMainContainer() builder.ContainerBuilder {
 	if b.ClusterConfig.Authentication != nil && b.ClusterConfig.Authentication.Oidc != nil {
 		containerBuilder.AddEnvFromSecret(b.ClusterConfig.Authentication.Oidc.ClientCredentialsSecret)
 	}
+
+	// add liveness probe
+	probe := &corev1.Probe{
+		ProbeHandler: corev1.ProbeHandler{
+			HTTPGet: &corev1.HTTPGetAction{
+				Path: "/health",
+				Port: intstr.FromInt(int(b.getAppPort())),
+				// TODO: add scheme, if enabled tls, use https, otherwise http
+			},
+		},
+		InitialDelaySeconds: 30,
+		PeriodSeconds:       10,
+		TimeoutSeconds:      5,
+		FailureThreshold:    3,
+		SuccessThreshold:    1,
+	}
+	containerBuilder.SetLivenessProbe(probe)
+	containerBuilder.SetReadinessProbe(probe)
 
 	return containerBuilder
 }
@@ -248,27 +277,30 @@ func (b *DeploymentBuilder) GetDefaultAffinityBuilder() *AffinityBuilder {
 	return affinity
 }
 
-func (b *DeploymentBuilder) addAuthLdapCredentials(ctx context.Context) error {
-	if b.ClusterConfig.Authentication == nil || b.ClusterConfig.Authentication.AuthenticationClass == "" {
-		return nil
-	}
-	authClass := &authv1alpha1.AuthenticationClass{
-		ObjectMeta: metav1.ObjectMeta{
-			Name:      b.ClusterConfig.Authentication.AuthenticationClass,
-			Namespace: b.Client.GetOwnerNamespace(),
-		},
-	}
-	if err := b.Client.GetWithObject(ctx, authClass); err != nil {
-		return err
-	}
+// is ldap authentication enabled
+func (b *DeploymentBuilder) getLdapProvider(ctx context.Context) (*authv1alpha1.LDAPProvider, error) {
+	if b.ClusterConfig.Authentication != nil && b.ClusterConfig.Authentication.AuthenticationClass != "" {
+		authClass := &authv1alpha1.AuthenticationClass{
+			ObjectMeta: metav1.ObjectMeta{
+				Name:      b.ClusterConfig.Authentication.AuthenticationClass,
+				Namespace: b.Client.GetOwnerNamespace(),
+			},
+		}
+		if err := b.Client.GetWithObject(ctx, authClass); err != nil {
+			return nil, err
+		}
 
-	if authClass.Spec.AuthenticationProvider.LDAP == nil {
-		return nil
+		if authClass.Spec.AuthenticationProvider.LDAP == nil {
+			return nil, nil
+		}
+
+		return authClass.Spec.AuthenticationProvider.LDAP, nil
 	}
+	return nil, nil
+}
 
-	ldapProvider := authClass.Spec.AuthenticationProvider.LDAP
-
-	credentials := ldapProvider.BindCredentials
+func (b *DeploymentBuilder) addAuthLdapCredentials(ldap *authv1alpha1.LDAPProvider) {
+	credentials := ldap.BindCredentials
 
 	scopes := []string{}
 
@@ -284,24 +316,23 @@ func (b *DeploymentBuilder) addAuthLdapCredentials(ctx context.Context) error {
 		}
 
 	}
-
 	b.addSecretVolume("ldap-bind-credentials", credentials.SecretClass, scopes)
-
-	return nil
-
 }
 
 func (b *DeploymentBuilder) addSecretVolume(name string, secretClass string, scopes []string) {
+	annotations := map[string]string{
+		constants.AnnotationSecretsClass: secretClass,
+	}
+	if len(scopes) > 0 {
+		annotations[constants.AnnotationSecretsScope] = strings.Join(scopes, constants.CommonDelimiter)
+	}
 	secretVolume := &corev1.Volume{
 		Name: name,
 		VolumeSource: corev1.VolumeSource{
 			Ephemeral: &corev1.EphemeralVolumeSource{
 				VolumeClaimTemplate: &corev1.PersistentVolumeClaimTemplate{
 					ObjectMeta: metav1.ObjectMeta{
-						Annotations: map[string]string{
-							constants.AnnotationSecretsClass: secretClass,
-							constants.AnnotationSecretsScope: strings.Join(scopes, constants.CommonDelimiter),
-						},
+						Annotations: annotations,
 					},
 					Spec: corev1.PersistentVolumeClaimSpec{
 						AccessModes:      []corev1.PersistentVolumeAccessMode{"ReadWriteOnce"},
@@ -329,10 +360,21 @@ func (b *DeploymentBuilder) addSecretVolume(name string, secretClass string, sco
 }
 
 func (b *DeploymentBuilder) Build(ctx context.Context) (ctrlclient.Object, error) {
-
-	b.AddContainer(b.GetMainContainer().Build())
-	b.AddVolume(
-		&corev1.Volume{
+	container := b.GetMainContainer()
+	b.AddVolumes([]corev1.Volume{
+		{
+			Name: LogVolumeName,
+			VolumeSource: corev1.VolumeSource{
+				EmptyDir: &corev1.EmptyDirVolumeSource{
+					SizeLimit: func() *resource.Quantity {
+						q := resource.MustParse(MaxLogFileSize)
+						size := productlogging.CalculateLogVolumeSizeLimit([]resource.Quantity{q})
+						return &size
+					}(),
+				},
+			},
+		},
+		{
 			Name: ConfigVolumeName,
 			VolumeSource: corev1.VolumeSource{
 				ConfigMap: &corev1.ConfigMapVolumeSource{
@@ -341,28 +383,36 @@ func (b *DeploymentBuilder) Build(ctx context.Context) (ctrlclient.Object, error
 				},
 			},
 		},
-	)
+	})
+
 	b.AddContainer(b.GetMetricsContainer().Build())
 	b.SetAffinity(b.GetDefaultAffinityBuilder().Build())
 
-	if err := b.addAuthLdapCredentials(ctx); err != nil {
-		return nil, err
-	}
-
-	obj, err := b.GetObject()
+	ldap, err := b.getLdapProvider(ctx)
 	if err != nil {
 		return nil, err
 	}
 
-	if b.ClusterConfig != nil && b.ClusterConfig.VectorAggregatorConfigMapName != "" {
-		builder.NewVectorDecorator(
-			obj,
-			b.GetImage(),
-			LogVolumeName,
-			ConfigVolumeName,
-			b.ClusterConfig.VectorAggregatorConfigMapName,
-		)
+	if ldap != nil {
+		b.addAuthLdapCredentials(ldap)
+		container.AddVolumeMount(&corev1.VolumeMount{
+			Name:      "ldap-bind-credentials",
+			MountPath: path.Join(constants.KubedoopSecretDir, ldap.BindCredentials.SecretClass),
+		})
 	}
 
-	return obj, nil
+	b.AddContainer(container.Build())
+
+	if b.ClusterConfig != nil && b.ClusterConfig.VectorAggregatorConfigMapName != "" {
+		vectorBuilder := builder.NewVector(
+			ConfigVolumeName,
+			LogVolumeName,
+			b.GetImage(),
+		)
+
+		b.AddContainer(vectorBuilder.GetContainer())
+		b.AddVolumes(vectorBuilder.GetVolumes())
+	}
+
+	return b.GetObject()
 }
