@@ -4,102 +4,83 @@ metadata:
   name: oidc
 spec:
   bindings:
-  - name: POSTGRESQL_USERNAME
-    value: superset
-  - name: POSTGRESQL_PASSWORD
-    value: superset
-  - name: KEYCLOAK_REALM
+  - name: keycloak_realm
     value: kubedoop
-  - name: KEYCLOAK_CLIENT_ID
-    value: superset
-  - name: KEYCLOAK_CLIENT_SECRET
-    value: superset
-  - name: SUPERSET_ADMIN_USERNAME
-    value: admin
-  - name: SUPERSET_ADMIN_PASSWORD
-    value: admin
-  - name: SUPERSET_USERNAME
-    value: superset
-  - name: SUPERSET_PASSWORD
-    value: superset
+  - name: keycloak_client_id
+    value: auth2-proxy
+  - name: keycloak_client_secret
+    value: auth2-proxy
+  - name: keycloak_user
+    value: user
+  - name: keycloak_password
+    value: password
   steps:
-  - try:
-      - apply:
-          file: authenticationclass.yaml
-      - assert:
-          file: authenticationclass.yaml
-  - try:
-    - apply:
-        file: postgres.yaml
+  - name: install postgresql
+    try:
+    - script:
+        content: |
+          bash ../setup/postgres-install.sh
     - assert:
-        file: postgres-assert.yaml
-  - try:
-    - apply:
-        file: keycloak.yaml
+        file: ../setup/postgres-assert.yaml
+  - name: install keycloak
+    try:
     - script:
         env:
-          - name: NAMESPACE
-            value: ($namespace)
-          - name: KEYCLOAK_REALM
-            value: ($KEYCLOAK_REALM)
-          - name: SUPERSET_USERNAME
-            value: ($SUPERSET_USERNAME)
-          - name: SUPERSET_PASSWORD
-            value: ($SUPERSET_PASSWORD)
-          - name: SUPERSET_ADMIN_USERNAME
-            value: ($SUPERSET_ADMIN_USERNAME)
-          - name: SUPERSET_ADMIN_PASSWORD
-            value: ($SUPERSET_ADMIN_PASSWORD)
-          - name: KEYCLOAK_CLIENT_ID
-            value: ($KEYCLOAK_CLIENT_ID)
-          - name: KEYCLOAK_CLIENT_SECRET
-            value: ($KEYCLOAK_CLIENT_SECRET)
+        - name: NAMESPACE
+          value: ($namespace)
+        - name: KEYCLOAK_REALM
+          value: ($keycloak_realm)
+        - name: KEYCLOAK_USER
+          value: ($keycloak_user)
+        - name: KEYCLOAK_PASSWORD
+          value: ($keycloak_password)
+        - name: KEYCLOAK_CLIENT_ID
+          value: ($keycloak_client_id)
+        - name: KEYCLOAK_CLIENT_SECRET
+          value: ($keycloak_client_secret)
         content: |
           cat keycloak-config.yaml | envsubst | kubectl apply -n $NAMESPACE -f -
+    - apply:
+        file: keycloak-install.yaml
     - assert:
+        timeout: 4m
         file: keycloak-assert.yaml
-  - try:
+  - name: deploy authentication classes
+    try:
     - script:
         env:
-          - name: NAMESPACE
-            value: ($namespace)
-          - name: POSTGRESQL_USERNAME
-            value: ($POSTGRESQL_USERNAME)
-          - name: POSTGRESQL_PASSWORD
-            value: ($POSTGRESQL_PASSWORD)
-          - name: SUPERSET_ADMIN_USERNAME
-            value: ($SUPERSET_ADMIN_USERNAME)
-          - name: SUPERSET_ADMIN_PASSWORD
-            value: ($SUPERSET_ADMIN_PASSWORD)
+        - name: NAMESPACE
+          value: ($namespace)
+        - name: KEYCLOAK_REALM
+          value: ($keycloak_realm)
+        - name: KEYCLOAK_CLIENT_ID
+          value: ($keycloak_client_id)
+        - name: KEYCLOAK_CLIENT_SECRET
+          value: ($keycloak_client_secret)
         content: |
-          cat superset-credentials.yaml | envsubst | kubectl apply -n $NAMESPACE -f -
-    - apply:
-        file: superset-oidc-credentials.yaml
-  - try:
-    - apply:
-        file: cluster.yaml
+          echo "Deploying the superset with Keycloak authentication class"
+          eval "echo \"$(cat keycloak-authenticationclass.yaml)\"" | kubectl apply -n $NAMESPACE -f -
     - assert:
-        file: cluster-assert.yaml
-    catch:
-    - sleep:
-        duration: 3s
-    - script:
-        env:
-          - name: NAMESPACE
-            value: ($namespace)
-        content: |
-          echo "Show superset-credentials secret"
-          kubectl get -n $NAMESPACE secret/superset-credentials -o jsonpath='{{ range $k, $v := .data }}{{ printf "%s=%s\n" $k ($value | base64decode) }}{{ end }}'
+        file: keycloak-authenticationclass-assert.yaml
+  - name: install superset cluster
+    try:
+    - apply:
+        file: superset.yaml
+    - assert:
+        file: superset-assert.yaml
+  - name: test superset OIDC authentication
+    try:
+      - apply:
+          file: ../setup/testing-tools-install.yaml
+      - assert:
+          file: ../setup/testing-tools-assert.yaml
+      - script:
+          env:
+            - name: NAMESPACE
+              value: ($namespace)
+          content: |
+            echo "env subst from oidc-login-assert.py"
+            envsubst < oidc-login-assert.py | kubectl exec -n $NAMESPACE -i testing-tools-0 -- tee /tmp/oidc-login-assert.py > /dev/null
 
-          echo "Show keycloak-config configmap"
-          kubectl get -n $NAMESPACE configmap/keycloak-config -o yaml
-    - podLogs:
-        selector: app=keycloak
-        tail: -1
-    - describe:
-        apiVersion: v1
-        kind: Pod
-        selector: app.kubernetes.io/instance=superset
-    - podLogs:
-        selector: app.kubernetes.io/instance=superset
-        tail: -1
+            echo "asserting the OIDC login"
+            kubectl exec -n $NAMESPACE testing-tools-0 -- python /tmp/oidc-login-assert.py

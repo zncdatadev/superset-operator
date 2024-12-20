@@ -4,7 +4,9 @@ import (
 	"context"
 
 	commonsv1alpha1 "github.com/zncdatadev/operator-go/pkg/apis/commons/v1alpha1"
+	"github.com/zncdatadev/operator-go/pkg/builder"
 	resourceClient "github.com/zncdatadev/operator-go/pkg/client"
+	"github.com/zncdatadev/operator-go/pkg/constants"
 	"github.com/zncdatadev/operator-go/pkg/reconciler"
 	"github.com/zncdatadev/operator-go/pkg/util"
 
@@ -109,5 +111,19 @@ func (r *Reconciler) RegisterResourceWithRoleGroup(
 		return nil, err
 	}
 
-	return []reconciler.Reconciler{configmapReconciler, deploymentReconciler}, nil
+	serviceReconciler := reconciler.NewServiceReconciler(
+		r.Client,
+		info.GetFullName(),
+		Ports,
+		func(o *builder.ServiceBuilderOptions) {
+			o.ListenerClass = constants.ExternalUnstable
+			o.ClusterName = info.GetClusterName()
+			o.RoleName = info.GetRoleName()
+			o.RoleGroupName = info.GetGroupName()
+			o.Labels = info.GetLabels()
+			o.Annotations = info.GetAnnotations()
+		},
+	)
+
+	return []reconciler.Reconciler{configmapReconciler, deploymentReconciler, serviceReconciler}, nil
 }

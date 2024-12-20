@@ -1,15 +1,14 @@
 apiVersion: apps/v1
-kind: Deployment
+kind: StatefulSet
 metadata:
-  name: postgres
+  name: openldap
 status:
-  availableReplicas: 1
   readyReplicas: 1
   replicas: 1
 ---
 apiVersion: v1
-kind: Service
+kind: Pod
 metadata:
-  name: postgres
+  name: ldap-init-user
 status:
-  loadBalancer: {}
+  phase: Succeeded

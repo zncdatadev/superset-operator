@@ -1,0 +1,39 @@
+---
+apiVersion: authentication.kubedoop.dev/v1alpha1
+kind: AuthenticationClass
+metadata:
+  name: openldap
+spec:
+  provider:
+    ldap:
+      hostname: openldap.$NAMESPACE.svc.cluster.local
+      searchBase: ou=users,dc=example,dc=com
+      ldapFieldNames:
+        email: mail
+        uid: cn
+      bindCredentials:
+        secretClass: superset-ldap
+      port: 1389
+---
+apiVersion: secrets.kubedoop.dev/v1alpha1
+kind: SecretClass
+metadata:
+  name: superset-ldap
+spec:
+  backend:
+    k8sSearch:
+      searchNamespace:
+        pod: {}
+---
+# k8s secret
+apiVersion: v1
+kind: Secret
+metadata:
+  name: superset-ldap
+  namespace: $NAMESPACE
+  labels:
+    secrets.kubedoop.dev/class: superset-ldap
+type: Opaque
+stringData:
+  user: $LDAP_ADMIN_DN
+  password: $LDAP_ADMIN_PASSWORD

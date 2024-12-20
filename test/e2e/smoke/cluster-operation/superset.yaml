@@ -1,0 +1,32 @@
+apiVersion: superset.kubedoop.dev/v1alpha1
+kind: SupersetCluster
+metadata:
+  name: test-superset
+spec:
+  image:
+    productVersion: ($values.product_version)
+  clusterOperation:
+    reconciliationPaused: ($cluster_paused)
+    stopped: ($cluster_stopped)
+  clusterConfig:
+    listenerClass: external-unstable
+    credentialsSecret: superset-credentials
+  node:
+    roleGroups:
+      default:
+        replicas: 1
+---
+apiVersion: v1
+kind: Secret
+metadata:
+  name: superset-credentials
+type: Opaque
+stringData:
+  adminUser.username: admin
+  adminUser.password: admin
+  adminUser.email: admin@example.com
+  adminUser.firstname: Superset
+  adminUser.lastname: Superset
+  appSecretKey: superset
+  # in same namespace, can directly use service name to connect
+  connections.sqlalchemyDatabaseUri: postgresql://superset:superset@superset-postgresql:5432/superset
