@@ -13,14 +13,14 @@ data:
       "users": [
         {
           "enabled": true,
-          "username": "$SUPERSET_USERNAME",
-          "firstName": "Superset",
-          "lastName": "Superset",
-          "email": "superset@example.com",
+          "username": "$KEYCLOAK_USER",
+          "firstName": "user",
+          "lastName": "user",
+          "email": "user@example.com",
           "credentials": [
             {
               "type": "password",
-              "value": "$SUPERSET_PASSWORD"
+              "value": "$KEYCLOAK_PASSWORD"
             }
           ],
           "realmRoles": [
@@ -49,6 +49,21 @@ data:
           ],
           "webOrigins": [
             "*"
+          ],
+          "protocolMappers": [
+            {
+              "name": "auth2-proxy-audiences",
+              "protocol": "openid-connect",
+              "protocolMapper": "oidc-audience-mapper",
+              "consentRequired": false,
+              "config": {
+                "included.client.audience": "auth2-proxy",
+                "id.token.claim": "true",
+                "lightweight.claim": "false",
+                "access.token.claim": "true",
+                "introspection.token.claim": "true"
+              }
+            }
           ]
         }
       ]
