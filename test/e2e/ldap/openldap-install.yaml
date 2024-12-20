@@ -1,0 +1,163 @@
+---
+apiVersion: v1
+kind: ConfigMap
+metadata:
+  name: ldap-admin
+data:
+  LDAP_ADMIN_USERNAME: "($ldap_admin_username)"
+  LDAP_ADMIN_PASSWORD: "($ldap_admin_password)"
+  LDAP_ADMIN_DN: "($ldap_admin_dn)"
+  LDAP_ROOT: "dc=example,dc=com"
+---
+apiVersion: apps/v1
+kind: StatefulSet
+metadata:
+  name: openldap
+  labels:
+    app: openldap
+spec:
+  replicas: 1
+  serviceName: "openldap"
+  selector:
+    matchLabels:
+      app: openldap
+  template:
+    metadata:
+      labels:
+        app: openldap
+    spec:
+      serviceAccountName: ldap-sa
+      restartPolicy: Always
+      containers:
+      - name: openldap
+        resources:
+          limits:
+            cpu: 200m
+            memory: 256Mi
+        image: bitnami/openldap:latest
+        ports:
+        - containerPort: 1389
+        livenessProbe:
+          tcpSocket:
+            port: 1389
+          initialDelaySeconds: 30
+          periodSeconds: 10
+        readinessProbe:
+          tcpSocket:
+            port: 1389
+          initialDelaySeconds: 30
+          periodSeconds: 10
+        envFrom:
+        - configMapRef:
+            name: ldap-admin
+---
+apiVersion: v1
+kind: Service
+metadata:
+  name: openldap
+spec:
+  selector:
+    app: openldap
+  ports:
+  - port: 1389
+    targetPort: 1389
+---
+apiVersion: v1
+kind: ConfigMap
+metadata:
+  name: superset-ldap-ldif
+data:
+  superset-ldap.ldif: |
+    # Add User
+    dn: cn=${LDAP_TESTING_USERNAME},ou=users,dc=example,dc=com
+    objectClass: inetOrgPerson
+    objectClass: posixAccount
+    objectClass: shadowAccount
+    cn: ${LDAP_TESTING_USERNAME}
+    uid: ${LDAP_TESTING_USERNAME}
+    givenName: Kubedoop
+    sn: Integration-Test
+    mail: ${LDAP_TESTING_USERNAME}@kubedoop.dev
+    uidNumber: 16842
+    gidNumber: 100
+    homeDirectory: /home/${LDAP_TESTING_USERNAME}
+    loginShell: /bin/bash
+    userPassword: {crypt}x
+    shadowLastChange: 0
+    shadowMax: 0
+    shadowWarning: 0
+
+    # Add User to superset_users Group
+    dn: cn=superset_users,ou=groups,dc=example,dc=com
+    changetype: modify
+    add: member
+    member: cn=${LDAP_TESTING_USERNAME},ou=users,dc=example,dc=com
+
+    # Add User to superset_admins Group (Optional, if needed)
+    dn: cn=superset_admins,ou=groups,dc=example,dc=com
+    changetype: modify
+    add: member
+    member: cn=${LDAP_TESTING_USERNAME},ou=users,dc=example,dc=com
+---
+apiVersion: v1
+kind: ServiceAccount
+metadata:
+  name: ldap-sa
+  namespace: ($namespace)
+---
+apiVersion: v1
+kind: Pod
+metadata:
+  name: ldap-init-user
+  labels:
+    name: ldap-init-user
+spec:
+  restartPolicy: Never
+  securityContext:
+    runAsUser: 0  # Run as root user (uid 0)
+  containers:
+  - name: ldap-init-user
+    image: bitnami/openldap:latest
+    env:
+      - name: LDAP_TESTING_USERNAME
+        value: ($ldap_testing_username)
+      - name: LDAP_TESTING_PASSWORD
+        value: ($ldap_testing_password)
+    envFrom:
+    - configMapRef:
+        name: ldap-admin
+    command:
+    - /bin/bash
+    - -c
+    - |
+      set -x
+      # Install apt packages
+      apt-get update && apt-get install -y gettext-base
+
+      echo "Waiting for the LDAP server to be ready"
+      until ldapwhoami -H ldap://openldap:1389 -D "${LDAP_ADMIN_DN}" -w ${LDAP_ADMIN_PASSWORD}; do
+        sleep 5
+      done
+
+      echo "Adding the LDAP user"
+      # Use envsubst to replace environment variables before ldapadd
+      envsubst < /data/superset-ldap.ldif | ldapadd -H ldap://openldap:1389 -D "${LDAP_ADMIN_DN}" -w ${LDAP_ADMIN_PASSWORD}
+
+      ldappasswd -H ldap://openldap:1389 \
+        -D "${LDAP_ADMIN_DN}" -w ${LDAP_ADMIN_PASSWORD} \
+        -s ${LDAP_TESTING_PASSWORD} \
+          "cn=${LDAP_TESTING_USERNAME},ou=users,dc=example,dc=com"
+
+      # Verify the LDAP user add and password change
+      ldapwhoami -H ldap://openldap:1389 -D "cn=${LDAP_TESTING_USERNAME},ou=users,dc=example,dc=com" -w "${LDAP_TESTING_PASSWORD}"
+    resources:
+      limits:
+        memory: "128Mi"
+        cpu: "500m"
+    volumeMounts:
+    - name: superset-ldap-ldif
+      mountPath: /data
+  volumes:
+  - name: superset-ldap-ldif
+    configMap:
+      name: superset-ldap-ldif
