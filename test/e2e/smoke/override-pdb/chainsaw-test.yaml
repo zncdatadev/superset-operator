@@ -1,0 +1,76 @@
+apiVersion: chainsaw.kyverno.io/v1alpha1
+kind: Test
+metadata:
+  name: smoke-override-pdb
+spec:
+  bindings:
+    - name: hive_version
+      value: 3.1.3
+  steps:
+  - name: install postgresql
+    try:
+    - script:
+        content: |
+          bash ../../setup/postgres-install.sh
+    - assert:
+        file: ../../setup/postgres-assert.yaml
+  - name: install superset cluster
+    try:
+    - apply:
+        file: superset.yaml
+    - assert:
+        file: superset-assert.yaml
+  - name: test pdb
+    try:
+    - assert:
+        resource:
+            kind: PodDisruptionBudget
+            apiVersion: policy/v1
+            metadata:
+              name: test-superset-node
+              namespace: ($namespace)
+            spec:
+              maxUnavailable: 1
+            status:
+              expectedPods: 2
+              currentHealthy: 2
+              disruptionsAllowed: 1
+  - name: test env overrides
+    try:
+      - script:
+          env:
+            - name: NAMESPACE
+              value: ($namespace)
+          content: |
+            set -eu
+            # Deployment Spec Test Data
+            SUPERSET_NODE_DEFAULT=$(kubectl -n "$NAMESPACE" get deployment test-superset-node-default -o yaml)
+            YQ_FILTER='
+              .spec.template.spec.containers[]
+              | select(.name == "node")
+              | .env[]
+              | select(.name == strenv(KEY) and .value == strenv(VALUE))
+            '
+
+            # Deployment Spec Test Assertions
+            echo "$SUPERSET_NODE_DEFAULT" | KEY="COMMON_VAR" VALUE="group-value" yq -e "$YQ_FILTER"
+            echo "$SUPERSET_NODE_DEFAULT" | KEY="GROUP_VAR" VALUE="group-value" yq -e "$YQ_FILTER"
+            echo "$SUPERSET_NODE_DEFAULT" | KEY="ROLE_VAR" VALUE="role-value" yq -e "$YQ_FILTER"
+  # TODO: configoverrde not supported currently
+  # - name: test config overrides
+  #   try:
+  #     - script:
+  #         content: |
+  #          set -eu
+
+  #           # Config Test Data
+  #           SUPERSET_CONFIG=$(
+  #               kubectl -n "$NAMESPACE" get cm test-superset-node-default -o yaml \
+  #               | yq -e '.data["superset_config.py"]'
+  #           )
+
+  #           # Config Test Assertions
+  #           echo "$SUPERSET_CONFIG" | grep 'COMMON_HEADER_VAR = "group-value"'
+  #           echo "$SUPERSET_CONFIG" | grep 'ROLE_FOOTER_VAR = "role-value"'
+  #           echo "$SUPERSET_CONFIG" | grep -v 'ROLE_HEADER_VAR = "role-value"'
+  # - name: test login

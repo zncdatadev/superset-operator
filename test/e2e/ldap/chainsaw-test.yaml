@@ -1,0 +1,64 @@
+apiVersion: chainsaw.kyverno.io/v1alpha1
+kind: Test
+metadata:
+  name: ldap
+spec:
+  bindings:
+  - name: ldap_admin_username
+    value: admin
+  - name: ldap_admin_dn
+    value: cn=admin,dc=example,dc=com  # This is the DN of the user in the LDAP server
+  - name: ldap_admin_password
+    value: admin
+  - name: ldap_testing_username
+    value: integrationtest
+  - name: ldap_testing_password
+    value: integrationtest
+  steps:
+  - name: install postgresql
+    try:
+    - script:
+        content: |
+          bash ../setup/postgres-install.sh
+    - assert:
+        file: ../setup/postgres-assert.yaml
+  - name: install openldap
+    try:
+    - apply:
+        file: openldap-install.yaml
+    - assert:
+        file: openldap-assert.yaml
+  - name: deploy authentication classes
+    try:
+    - script:
+        env:
+        - name: LDAP_ADMIN_DN
+          value: ($ldap_admin_dn)
+        - name: LDAP_ADMIN_PASSWORD
+          value: ($ldap_admin_password)
+        - name: NAMESPACE
+          value: ($namespace)
+        content: |
+          echo "Deploying the OpenLDAP authentication"
+          eval "echo \"$(cat openldap-authenticationclass.yaml)\"" | kubectl apply -n $NAMESPACE -f -
+    - assert:
+        file: openldap-authenticationclass-assert.yaml
+  - name: install superset cluster
+    try:
+    - apply:
+        file: superset.yaml
+    - assert:
+        file: superset-assert.yaml
+  - name: test superset LDAP authentication
+    try:
+      - apply:
+          file: ../setup/testing-tools-install.yaml
+      - assert:
+          file: ../setup/testing-tools-assert.yaml
+      - script:
+          env:
+            - name: NAMESPACE
+              value: ($namespace)
+          content: |
+            kubectl -n $NAMESPACE cp openldap-login-assert.py testing-tools-0:/tmp/openldap-login-assert.py
+            kubectl -n $NAMESPACE exec testing-tools-0 -- python /tmp/openldap-login-assert.py

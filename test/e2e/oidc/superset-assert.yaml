@@ -1,7 +1,7 @@
 apiVersion: apps/v1
 kind: Deployment
 metadata:
-  name: superset-node-default
+  name: test-superset-node-default
 status:
   availableReplicas: 1
   readyReplicas: 1
