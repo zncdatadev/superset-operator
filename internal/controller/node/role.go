@@ -96,7 +96,7 @@ func (r *Reconciler) RegisterResourceWithRoleGroup(
 		info,
 	)
 
-	deploymentReconciler, err := NewDeploymentReconciler(
+	stsReconciler, err := NewStatefulSetReconciler(
 		r.Client,
 		info,
 		r.ClusterConfig,
@@ -125,5 +125,5 @@ func (r *Reconciler) RegisterResourceWithRoleGroup(
 		},
 	)
 
-	return []reconciler.Reconciler{configmapReconciler, deploymentReconciler, serviceReconciler}, nil
+	return []reconciler.Reconciler{configmapReconciler, stsReconciler, serviceReconciler}, nil
 }

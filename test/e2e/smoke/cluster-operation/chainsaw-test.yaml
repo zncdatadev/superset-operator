@@ -34,11 +34,10 @@ spec:
             value: true
         file: superset.yaml
     - assert:
-        resource:
-          apiVersion: apps/v1
-          kind: Deployment
-          metadata:
-            name: test-superset-node-default
+        bindings:
+          - name: available_replicas
+            value: 0
+        file: superset-assert.yaml
     # pause superset cluster, clusterOperation.reconciliationPaused: true
   - name: pause superset cluster
     try:
@@ -50,11 +49,10 @@ spec:
             value: false
         file: superset.yaml
     - assert:
-        resource:
-          apiVersion: apps/v1
-          kind: Deployment
-          metadata:
-            name: test-superset-node-default
+        bindings:
+          - name: available_replicas
+            value: 1
+        file: superset-assert.yaml
     # restart superset cluster, clusterOperation.stopped: false, clusterOperation.reconciliationPaused: false
   - name: restart superset cluster
     try:

@@ -44,7 +44,7 @@ spec:
           content: |
             set -eu
             # Deployment Spec Test Data
-            SUPERSET_NODE_DEFAULT=$(kubectl -n "$NAMESPACE" get deployment test-superset-node-default -o yaml)
+            SUPERSET_NODE_DEFAULT=$(kubectl -n "$NAMESPACE" get sts test-superset-node-default -o yaml)
             YQ_FILTER='
               .spec.template.spec.containers[]
               | select(.name == "node")
