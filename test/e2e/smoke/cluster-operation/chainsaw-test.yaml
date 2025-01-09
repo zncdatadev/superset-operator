@@ -1,0 +1,70 @@
+apiVersion: chainsaw.kyverno.io/v1alpha1
+kind: Test
+metadata:
+  name: smoke-cluster-operation
+spec:
+  bindings:
+    - name: cluster_stopped
+      value: false
+    - name: cluster_paused
+      value: false
+  steps:
+  - name: install postgresql
+    try:
+    - script:
+        content: |
+          bash ../../setup/postgres-install.sh
+    - assert:
+        file: ../../setup/postgres-assert.yaml
+  - name: install superset cluster
+    try:
+    # install superset cluster, clusterOperation.stopped: false, clusterOperation.reconciliationPaused: false
+    - apply:
+        file: superset.yaml
+    - assert:
+        bindings:
+          - name: available_replicas
+            value: 1
+        file: superset-assert.yaml
+  - name: stop superset cluster
+    try:
+    - apply:
+        bindings:
+          - name: cluster_stopped
+            value: true
+        file: superset.yaml
+    - assert:
+        resource:
+          apiVersion: apps/v1
+          kind: Deployment
+          metadata:
+            name: test-superset-node-default
+    # pause superset cluster, clusterOperation.reconciliationPaused: true
+  - name: pause superset cluster
+    try:
+    - apply:
+        bindings:
+          - name: cluster_paused
+            value: true
+          - name: cluster_stopped
+            value: false
+        file: superset.yaml
+    - assert:
+        resource:
+          apiVersion: apps/v1
+          kind: Deployment
+          metadata:
+            name: test-superset-node-default
+    # restart superset cluster, clusterOperation.stopped: false, clusterOperation.reconciliationPaused: false
+  - name: restart superset cluster
+    try:
+    - apply:
+        file: superset.yaml
+    - assert:
+        bindings:
+          - name: available_replicas
+            value: 1
+        file: superset-assert.yaml
+    cleanup:
+    - sleep:
+        duration: 30s
