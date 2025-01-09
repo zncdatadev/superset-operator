@@ -29,17 +29,17 @@ var (
 	MaxLogFileSize   = "10Mi"
 )
 
-var _ builder.DeploymentBuilder = &DeploymentBuilder{}
+var _ builder.StatefulSetBuilder = &StatefulSetBuilder{}
 
-type DeploymentBuilder struct {
-	builder.Deployment
+type StatefulSetBuilder struct {
+	builder.StatefulSet
 	Ports         []corev1.ContainerPort
 	ClusterConfig *supersetv1alpha1.ClusterConfigSpec
 	ClusterName   string
 	RoleName      string
 }
 
-func NewDeploymentBuilder(
+func NewStatefulSetBuilder(
 	client *client.Client,
 	roleGroupInfo reconciler.RoleGroupInfo,
 	clusterConfig *supersetv1alpha1.ClusterConfigSpec,
@@ -48,9 +48,9 @@ func NewDeploymentBuilder(
 	image *util.Image,
 	overrides *commonsv1alpha1.OverridesSpec,
 	roleGroupConfig *commonsv1alpha1.RoleGroupConfigSpec,
-) *DeploymentBuilder {
-	return &DeploymentBuilder{
-		Deployment: *builder.NewDeployment(
+) *StatefulSetBuilder {
+	return &StatefulSetBuilder{
+		StatefulSet: *builder.NewStatefulSetBuilder(
 			client,
 			roleGroupInfo.GetFullName(),
 			replicas,
@@ -71,7 +71,7 @@ func NewDeploymentBuilder(
 	}
 }
 
-func (b *DeploymentBuilder) GetMainCommands() string {
+func (b *StatefulSetBuilder) GetMainCommands() string {
 
 	cmds := `
 mkdir --parents /kubedoop/app/pythonpath
@@ -148,7 +148,7 @@ mkdir -p /kubedoop/log/_vector/ && touch /kubedoop/log/_vector/shutdown
 	return util.IndentTab4Spaces(cmds)
 }
 
-func (b *DeploymentBuilder) GetInitContainerCommands() string {
+func (b *StatefulSetBuilder) GetInitContainerCommands() string {
 	cmds := `
 prepare_signal_handlers()
 {
@@ -189,7 +189,7 @@ wait_for_termination $!
 	return util.IndentTab4Spaces(cmds)
 }
 
-func (b *DeploymentBuilder) getAppPort() int32 {
+func (b *StatefulSetBuilder) getAppPort() int32 {
 	var portNum int32
 	for _, port := range b.Ports {
 		if port.Name == "http" {
@@ -200,7 +200,7 @@ func (b *DeploymentBuilder) getAppPort() int32 {
 	return portNum
 }
 
-func (b *DeploymentBuilder) GetMetricsContainer() builder.ContainerBuilder {
+func (b *StatefulSetBuilder) GetMetricsContainer() builder.ContainerBuilder {
 	containerBuilder := builder.NewContainer(
 		"metrics",
 		b.GetImage(),
@@ -210,7 +210,7 @@ func (b *DeploymentBuilder) GetMetricsContainer() builder.ContainerBuilder {
 	return containerBuilder
 }
 
-func (b *DeploymentBuilder) GetMainContainer() builder.ContainerBuilder {
+func (b *StatefulSetBuilder) GetMainContainer() builder.ContainerBuilder {
 	containerBuilder := builder.NewContainer(
 		b.RoleName,
 		b.GetImage(),
@@ -263,7 +263,7 @@ func (b *DeploymentBuilder) GetMainContainer() builder.ContainerBuilder {
 	return containerBuilder
 }
 
-func (b *DeploymentBuilder) GetDefaultAffinityBuilder() *AffinityBuilder {
+func (b *StatefulSetBuilder) GetDefaultAffinityBuilder() *AffinityBuilder {
 	antiAffinityLabels := map[string]string{
 		constants.LabelKubernetesInstance:  b.ClusterName,
 		constants.LabelKubernetesName:      "hbase",
@@ -278,7 +278,7 @@ func (b *DeploymentBuilder) GetDefaultAffinityBuilder() *AffinityBuilder {
 }
 
 // is ldap authentication enabled
-func (b *DeploymentBuilder) getLdapProvider(ctx context.Context) (*authv1alpha1.LDAPProvider, error) {
+func (b *StatefulSetBuilder) getLdapProvider(ctx context.Context) (*authv1alpha1.LDAPProvider, error) {
 	if b.ClusterConfig.Authentication != nil && b.ClusterConfig.Authentication.AuthenticationClass != "" {
 		authClass := &authv1alpha1.AuthenticationClass{
 			ObjectMeta: metav1.ObjectMeta{
@@ -299,7 +299,7 @@ func (b *DeploymentBuilder) getLdapProvider(ctx context.Context) (*authv1alpha1.
 	return nil, nil
 }
 
-func (b *DeploymentBuilder) addAuthLdapCredentials(ldap *authv1alpha1.LDAPProvider) {
+func (b *StatefulSetBuilder) addAuthLdapCredentials(ldap *authv1alpha1.LDAPProvider) {
 	credentials := ldap.BindCredentials
 
 	scopes := []string{}
@@ -319,7 +319,7 @@ func (b *DeploymentBuilder) addAuthLdapCredentials(ldap *authv1alpha1.LDAPProvid
 	b.addSecretVolume("ldap-bind-credentials", credentials.SecretClass, scopes)
 }
 
-func (b *DeploymentBuilder) addSecretVolume(name string, secretClass string, scopes []string) {
+func (b *StatefulSetBuilder) addSecretVolume(name string, secretClass string, scopes []string) {
 	annotations := map[string]string{
 		constants.AnnotationSecretsClass: secretClass,
 	}
@@ -359,7 +359,7 @@ func (b *DeploymentBuilder) addSecretVolume(name string, secretClass string, sco
 	b.GetMainContainer().AddVolumeMount(secretVolumeMount)
 }
 
-func (b *DeploymentBuilder) Build(ctx context.Context) (ctrlclient.Object, error) {
+func (b *StatefulSetBuilder) Build(ctx context.Context) (ctrlclient.Object, error) {
 	container := b.GetMainContainer()
 	b.AddVolumes([]corev1.Volume{
 		{

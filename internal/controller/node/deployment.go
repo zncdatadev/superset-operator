@@ -11,7 +11,7 @@ import (
 	commonsv1alpha1 "github.com/zncdatadev/operator-go/pkg/apis/commons/v1alpha1"
 )
 
-func NewDeploymentReconciler(
+func NewStatefulSetReconciler(
 	client *client.Client,
 	roleGroupInfo reconciler.RoleGroupInfo,
 	clusterConfig *supersetv1alpha1.ClusterConfigSpec,
@@ -21,9 +21,9 @@ func NewDeploymentReconciler(
 	stopped bool,
 	overrides *commonsv1alpha1.OverridesSpec,
 	roleGroupConfig *commonsv1alpha1.RoleGroupConfigSpec,
-) (*reconciler.Deployment, error) {
+) (*reconciler.StatefulSet, error) {
 
-	deploymentBuilder := common.NewDeploymentBuilder(
+	stsBuilder := common.NewStatefulSetBuilder(
 		client,
 		roleGroupInfo,
 		clusterConfig,
@@ -34,9 +34,9 @@ func NewDeploymentReconciler(
 		roleGroupConfig,
 	)
 
-	return reconciler.NewDeployment(
+	return reconciler.NewStatefulSet(
 		client,
-		deploymentBuilder,
+		stsBuilder,
 		stopped,
 	), nil
 }
