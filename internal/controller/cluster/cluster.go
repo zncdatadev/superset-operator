@@ -8,6 +8,7 @@ import (
 	"github.com/zncdatadev/operator-go/pkg/util"
 	supersetv1alpha1 "github.com/zncdatadev/superset-operator/api/v1alpha1"
 	"github.com/zncdatadev/superset-operator/internal/controller/node"
+	"github.com/zncdatadev/superset-operator/internal/util/version"
 	corev1 "k8s.io/api/core/v1"
 )
 
@@ -37,10 +38,11 @@ func NewReconciler(
 }
 
 func (r *Reconciler) GetImage() *util.Image {
+
 	image := &util.Image{
 		Repo:            supersetv1alpha1.DefaultRepository,
 		ProductName:     supersetv1alpha1.DefaultProductName,
-		KubedoopVersion: supersetv1alpha1.DefaultKubedoopVersion,
+		KubedoopVersion: version.BuildVersion,
 		ProductVersion:  supersetv1alpha1.DefaultProductVersion,
 		PullPolicy:      corev1.PullIfNotPresent,
 	}
