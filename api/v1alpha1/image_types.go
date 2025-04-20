@@ -5,10 +5,9 @@ import (
 )
 
 const (
-	DefaultRepository      = "quay.io/zncdatadev"
-	DefaultProductVersion  = "4.0.2"
-	DefaultKubedoopVersion = "0.0.0-dev"
-	DefaultProductName     = "superset"
+	DefaultRepository     = "quay.io/zncdatadev"
+	DefaultProductVersion = "4.0.2"
+	DefaultProductName    = "superset"
 )
 
 type ImageSpec struct {
@@ -20,7 +19,6 @@ type ImageSpec struct {
 	Repo string `json:"repo,omitempty"`
 
 	// +kubebuilder:validation:Optional
-	// +kubebuilder:default="0.0.0-dev"
 	KubedoopVersion string `json:"kubedoopVersion,omitempty"`
 
 	// +kubebuilder:validation:Optional
@@ -29,7 +27,7 @@ type ImageSpec struct {
 
 	// +kubebuilder:validation:Optional
 	// +kubebuilder:default:=IfNotPresent
-	PullPolicy corev1.PullPolicy `json:"pullPolicy,omitempty"`
+	PullPolicy *corev1.PullPolicy `json:"pullPolicy,omitempty"`
 
 	// +kubebuilder:validation:Optional
 	PullSecretName string `json:"pullSecretName,omitempty"`

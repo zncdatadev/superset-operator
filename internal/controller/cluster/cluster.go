@@ -8,7 +8,7 @@ import (
 	"github.com/zncdatadev/operator-go/pkg/util"
 	supersetv1alpha1 "github.com/zncdatadev/superset-operator/api/v1alpha1"
 	"github.com/zncdatadev/superset-operator/internal/controller/node"
-	corev1 "k8s.io/api/core/v1"
+	"github.com/zncdatadev/superset-operator/internal/util/version"
 )
 
 var _ reconciler.Reconciler = &Reconciler{}
@@ -37,21 +37,21 @@ func NewReconciler(
 }
 
 func (r *Reconciler) GetImage() *util.Image {
-	image := &util.Image{
-		Repo:            supersetv1alpha1.DefaultRepository,
-		ProductName:     supersetv1alpha1.DefaultProductName,
-		KubedoopVersion: supersetv1alpha1.DefaultKubedoopVersion,
-		ProductVersion:  supersetv1alpha1.DefaultProductVersion,
-		PullPolicy:      corev1.PullIfNotPresent,
+	image := util.NewImage(
+		supersetv1alpha1.DefaultProductName,
+		version.BuildVersion,
+		r.Spec.Image.ProductVersion,
+		func(options *util.ImageOptions) {
+			options.Custom = r.Spec.Image.Custom
+			options.Repo = r.Spec.Image.Repo
+			options.PullPolicy = *r.Spec.Image.PullPolicy
+		},
+	)
+
+	if r.Spec.Image.KubedoopVersion != "" {
+		image.KubedoopVersion = r.Spec.Image.KubedoopVersion
 	}
 
-	if r.Spec.Image != nil {
-		image.Custom = r.Spec.Image.Custom
-		image.Repo = r.Spec.Image.Repo
-		image.KubedoopVersion = r.Spec.Image.KubedoopVersion
-		image.ProductVersion = r.Spec.Image.ProductVersion
-		image.PullPolicy = r.Spec.Image.PullPolicy
-	}
 	return image
 }
 
