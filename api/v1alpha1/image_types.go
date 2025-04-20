@@ -27,7 +27,7 @@ type ImageSpec struct {
 
 	// +kubebuilder:validation:Optional
 	// +kubebuilder:default:=IfNotPresent
-	PullPolicy corev1.PullPolicy `json:"pullPolicy,omitempty"`
+	PullPolicy *corev1.PullPolicy `json:"pullPolicy,omitempty"`
 
 	// +kubebuilder:validation:Optional
 	PullSecretName string `json:"pullSecretName,omitempty"`
