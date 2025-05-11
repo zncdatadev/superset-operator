@@ -103,13 +103,15 @@ spec:
                     type: boolean
                 type: object
               image:
+                default:
+                  pullPolicy: IfNotPresent
+                  repo: quay.io/zncdatadev
                 properties:
                   custom:
                     type: string
                   kubedoopVersion:
                     type: string
                   productVersion:
-                    default: 4.0.2
                     type: string
                   pullPolicy:
                     default: IfNotPresent
