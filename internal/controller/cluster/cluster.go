@@ -40,7 +40,7 @@ func (r *Reconciler) GetImage() *util.Image {
 	image := util.NewImage(
 		supersetv1alpha1.DefaultProductName,
 		version.BuildVersion,
-		r.Spec.Image.ProductVersion,
+		supersetv1alpha1.DefaultProductVersion,
 		func(options *util.ImageOptions) {
 			options.Custom = r.Spec.Image.Custom
 			options.Repo = r.Spec.Image.Repo

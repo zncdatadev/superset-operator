@@ -23,6 +23,7 @@ import (
 
 // SupersetClusterSpec defines the desired state of SupersetCluster
 type SupersetClusterSpec struct {
+	// +default:value={"repo": "quay.io/zncdatadev", "pullPolicy": "IfNotPresent"}
 	Image            *ImageSpec                        `json:"image,omitempty"`
 	ClusterConfig    *ClusterConfigSpec                `json:"clusterConfig"`
 	ClusterOperation *apiv1alpha1.ClusterOperationSpec `json:"clusterOperation,omitempty"`
