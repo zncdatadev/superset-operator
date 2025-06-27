@@ -1,6 +1,6 @@
 module github.com/zncdatadev/superset-operator
 
-go 1.23.4
+go 1.24.1
 
 require (
 	github.com/onsi/ginkgo/v2 v2.23.4
@@ -14,7 +14,7 @@ require (
 
 // replace github.com/zncdatadev/operator-go => ../operator-go
 
-require github.com/zncdatadev/operator-go v0.12.3
+require github.com/zncdatadev/operator-go v0.12.4
 
 require (
 	cel.dev/expr v0.18.0 // indirect
