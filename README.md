@@ -13,26 +13,20 @@ together seamlessly. Based on Kubernetes, it runs everywhere – on prem or in t
 
 ## Quick Start
 
-### Add helm repository
+### Install Requirements Dependencies
 
-> Please make sure helm version is v3.0.0+
-
-```bash
-helm repo add kubedoop https://zncdatadev.github.io/kubedoop-helm-charts/
-```
-
-### Add required dependencies
+> Please make sure helm version is v3.8.0+
 
 ```bash
-helm install commons-operator kubedoop/commons-operator
-helm install listener-operator kubedoop/listener-operator
-helm install secret-operator kubedoop/secret-operator
+helm install commons-operator oci://quay.io/kubedoopcharts/commons-operator
+helm install listener-operator oci://quay.io/kubedoopcharts/listener-operator
+helm install secret-operator oci://quay.io/kubedoopcharts/secret-operator
 ```
 
 ### Add superset-operator
 
 ```bash
-helm install superset-operator kubedoop/superset-operator
+helm install superset-operator oci://quay.io/kubedoopcharts/superset-operator
 ```
 
 ### Deploy superset cluster
