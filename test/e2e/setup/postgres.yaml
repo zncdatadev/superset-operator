@@ -5,7 +5,7 @@ kind: StatefulSet
 metadata:
   name: superset-postgres
   labels:
-    app.kubernetes.io/name: postsuperset-postgresgres
+    app.kubernetes.io/name: superset-postgresgres
 spec:
   selector:
     matchLabels:
