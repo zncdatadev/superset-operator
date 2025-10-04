@@ -1,0 +1,70 @@
+---
+apiVersion: v1
+kind: ConfigMap
+metadata:
+  name: superset-login-script
+data:
+  ldap-login.py: |
+    import logging
+    import os
+    import sys
+
+    import requests
+
+
+    if __name__ == '__main__':
+        result = 0
+
+        log_level = 'DEBUG'  # if args.debug else 'INFO'
+        logging.basicConfig(level=log_level, format='%(asctime)s %(levelname)s: %(message)s', stream=sys.stdout)
+
+        http_code = requests.post(
+            'http://test-superset-node-default:8088/api/v1/security/login',
+            json={
+                'username': os.environ['LDAP_SUPERSET_USERNAME'],
+                'password': os.environ['LDAP_SUPERSET_PASSWORD'],
+                'provider': 'ldap',
+                'refresh': 'true',
+            }
+        ).status_code
+        if http_code != 200:
+            result = 1
+
+        sys.exit(result)
+
+---
+apiVersion: v1
+kind: Pod
+metadata:
+  name: superset-login
+  labels:
+    app.kubernetes.io/name: superset-login
+spec:
+  containers:
+  - name: superset-login
+    image: quay.io/zncdatadev/testing-tools:0.1.0-kubedoop0.0.0-dev
+    resources:
+      limits:
+        memory: "64Mi"
+        cpu: "100m"
+    command:
+    - /bin/sh
+    - -c
+    args:
+    - |
+      # Execute the script
+      python /scripts/ldap-login.py
+    env:
+    - name: LDAP_SUPERSET_USERNAME
+      value: ($ldap_superset_username)
+    - name: LDAP_SUPERSET_PASSWORD
+      value: ($ldap_superset_password)
+    volumeMounts:
+    - name: scripts
+      mountPath: /scripts
+      readOnly: true
+  restartPolicy: Never
+  volumes:
+  - name: scripts
+    configMap:
+      name: superset-login-script

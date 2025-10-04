@@ -17,9 +17,8 @@ spec:
   steps:
   - name: install postgresql
     try:
-    - script:
-        content: |
-          bash ../setup/postgres-install.sh
+    - apply:
+        file: ../setup/postgres.yaml
     - assert:
         file: ../setup/postgres-assert.yaml
   - name: install keycloak

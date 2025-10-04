@@ -36,4 +36,4 @@ stringData:
   adminUser.lastname: Superset
   appSecretKey: superset
   # in same namespace, can directly use service name to connect
-  connections.sqlalchemyDatabaseUri: postgresql://superset:superset@superset-postgresql:5432/superset
+  connections.sqlalchemyDatabaseUri: postgresql://superset:superset@superset-postgres:5432/superset

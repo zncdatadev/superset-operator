@@ -4,45 +4,33 @@ metadata:
   name: ldap
 spec:
   bindings:
-  - name: ldap_admin_username
-    value: admin
   - name: ldap_admin_dn
-    value: cn=admin,dc=example,dc=com  # This is the DN of the user in the LDAP server
+    value: cn=admin,ou=people,dc=example,dc=com
   - name: ldap_admin_password
-    value: admin
-  - name: ldap_testing_username
-    value: integrationtest
-  - name: ldap_testing_password
-    value: integrationtest
+    value: password
+  - name: ldap_superset_username
+    value: superset
+  - name: ldap_superset_password
+    value: superset
   steps:
   - name: install postgresql
     try:
-    - script:
-        content: |
-          bash ../setup/postgres-install.sh
+    - apply:
+        file: ../setup/postgres.yaml
     - assert:
         file: ../setup/postgres-assert.yaml
-  - name: install openldap
+  - name: install ldap
     try:
     - apply:
-        file: openldap-install.yaml
+        file: ldap-install.yaml
     - assert:
-        file: openldap-assert.yaml
+        file: ldap-assert.yaml
   - name: deploy authentication classes
     try:
-    - script:
-        env:
-        - name: LDAP_ADMIN_DN
-          value: ($ldap_admin_dn)
-        - name: LDAP_ADMIN_PASSWORD
-          value: ($ldap_admin_password)
-        - name: NAMESPACE
-          value: ($namespace)
-        content: |
-          echo "Deploying the OpenLDAP authentication"
-          eval "echo \"$(cat openldap-authenticationclass.yaml)\"" | kubectl apply -n $NAMESPACE -f -
+    - apply:
+        file: ldap-authenticationclass.yaml
     - assert:
-        file: openldap-authenticationclass-assert.yaml
+        file: ldap-authenticationclass-assert.yaml
   - name: install superset cluster
     try:
     - apply:
@@ -52,13 +40,6 @@ spec:
   - name: test superset LDAP authentication
     try:
       - apply:
-          file: ../setup/testing-tools-install.yaml
+          file: ldap-login.yaml
       - assert:
-          file: ../setup/testing-tools-assert.yaml
-      - script:
-          env:
-            - name: NAMESPACE
-              value: ($namespace)
-          content: |
-            kubectl -n $NAMESPACE cp openldap-login-assert.py testing-tools-0:/tmp/openldap-login-assert.py
-            kubectl -n $NAMESPACE exec testing-tools-0 -- python /tmp/openldap-login-assert.py
+          file: ldap-login-assert.yaml
