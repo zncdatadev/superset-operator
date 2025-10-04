@@ -1,14 +1,14 @@
 apiVersion: v1
 kind: Service
 metadata:
-  name: superset-postgresql
+  name: superset-postgres
   labels:
-    app.kubernetes.io/name: postgresql
+    app.kubernetes.io/name: superset-postgres
 ---
 apiVersion: apps/v1
 kind: StatefulSet
 metadata:
-  name: superset-postgresql
+  name: superset-postgres
 status:
   readyReplicas: 1
   replicas: 1
