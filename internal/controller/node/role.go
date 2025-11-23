@@ -2,6 +2,7 @@ package node
 
 import (
 	"context"
+	"strconv"
 
 	commonsv1alpha1 "github.com/zncdatadev/operator-go/pkg/apis/commons/v1alpha1"
 	"github.com/zncdatadev/operator-go/pkg/builder"
@@ -9,6 +10,7 @@ import (
 	"github.com/zncdatadev/operator-go/pkg/constants"
 	"github.com/zncdatadev/operator-go/pkg/reconciler"
 	"github.com/zncdatadev/operator-go/pkg/util"
+	corev1 "k8s.io/api/core/v1"
 
 	supersetv1alpha1 "github.com/zncdatadev/superset-operator/api/v1alpha1"
 	"github.com/zncdatadev/superset-operator/internal/controller/common"
@@ -111,6 +113,16 @@ func (r *Reconciler) RegisterResourceWithRoleGroup(
 		return nil, err
 	}
 
+	// Merge Prometheus annotations with existing annotations
+	annotations := info.GetAnnotations()
+	if annotations == nil {
+		annotations = make(map[string]string)
+	}
+	prometheusAnnotations := GetPrometheusAnnotations(Ports)
+	for k, v := range prometheusAnnotations {
+		annotations[k] = v
+	}
+
 	serviceReconciler := reconciler.NewServiceReconciler(
 		r.Client,
 		info.GetFullName(),
@@ -121,9 +133,30 @@ func (r *Reconciler) RegisterResourceWithRoleGroup(
 			o.RoleName = info.GetRoleName()
 			o.RoleGroupName = info.GetGroupName()
 			o.Labels = info.GetLabels()
-			o.Annotations = info.GetAnnotations()
+			o.Annotations = annotations
 		},
 	)
-
 	return []reconciler.Reconciler{configmapReconciler, stsReconciler, serviceReconciler}, nil
+}
+
+// Common annotations for Prometheus scraping
+func GetPrometheusAnnotations(ports []corev1.ContainerPort) map[string]string {
+	metricsPort := 0
+	for _, port := range ports {
+		if port.Name == "metrics" {
+			metricsPort = int(port.ContainerPort)
+			break
+		}
+	}
+
+	if metricsPort > 0 {
+		return map[string]string{
+			"prometheus.io/scrape": "true",
+			"prometheus.io/port":   strconv.Itoa(metricsPort),
+			"prometheus.io/path":   "/metrics",
+			"prometheus.io/scheme": "http",
+		}
+	}
+
+	return nil
 }

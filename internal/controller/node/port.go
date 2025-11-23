@@ -8,5 +8,9 @@ var (
 			Name:          "http",
 			ContainerPort: 8088,
 		},
+		{
+			Name:          "metrics",
+			ContainerPort: 9012, // stastsd port
+		},
 	}
 )
