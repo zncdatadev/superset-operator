@@ -51,10 +51,10 @@ var (
 func init() {
 	utilruntime.Must(clientgoscheme.AddToScheme(scheme))
 
+	utilruntime.Must(authv1alpha1.AddToScheme(scheme))
 	utilruntime.Must(supersetv1alpha1.AddToScheme(scheme))
 	// +kubebuilder:scaffold:scheme
 
-	utilruntime.Must(authv1alpha1.AddToScheme(scheme))
 }
 
 func main() {
@@ -165,6 +165,7 @@ func main() {
 		metricsServerOptions.CertName = metricsCertName
 		metricsServerOptions.KeyName = metricsCertKey
 	}
+
 	mgr, err := ctrl.NewManager(ctrl.GetConfigOrDie(), ctrl.Options{
 		Scheme:                 scheme,
 		Metrics:                metricsServerOptions,

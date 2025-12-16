@@ -117,8 +117,8 @@ BUILD_TIMESTAMP ?= $(shell date -u +'%Y-%m-%dT%H:%M:%SZ')
 BUILD_COMMIT ?= $(shell git rev-parse HEAD)
 
 LDFLAGS = "-X github.com/zncdatadev/$(PROJECT_NAME)/internal/util/version.BuildVersion=$(VERSION) \
--X github.com/zncdatadev/$(PROJECT_NAME)/internal/util/version.GitCommit=$(BUILD_COMMIT) \
--X github.com/zncdatadev/$(PROJECT_NAME)/internal/util/version.BuildTime=$(BUILD_TIMESTAMP)"
+	-X github.com/zncdatadev/$(PROJECT_NAME)/internal/util/version.GitCommit=$(BUILD_COMMIT) \
+	-X github.com/zncdatadev/$(PROJECT_NAME)/internal/util/version.BuildTime=$(BUILD_TIMESTAMP)"
 
 .PHONY: build
 build: manifests generate fmt vet ## Build manager binary.
@@ -162,25 +162,6 @@ build-installer: manifests generate kustomize ## Generate a consolidated YAML wi
 	cd config/manager && "$(KUSTOMIZE)" edit set image controller=${IMG}
 	"$(KUSTOMIZE)" build config/default > dist/install.yaml
 
-
-##@ Helm Charts
-
-OCI_REGISTRY ?= oci://quay.io/kubedoopcharts
-HELM ?= helm
-
-.PHONY: helm-crd-sync ## Sync CRDs to helm chart for the operator.
-helm-crd-sync: manifests kustomize ## Sync CRDs to helm chart for the operator
-	"$(KUSTOMIZE)" build config/crd > deploy/helm/$(PROJECT_NAME)/crds/crds.yaml
-
-.PHONY: helm-chart-package ## Package helm chart for the operator.
-helm-chart-package: ## Package helm chart for the operator.
-	mkdir -p target/charts
-	rm -rf target/charts/*.tgz
-	"$(HELM)" package deploy/helm/$(PROJECT_NAME) --version $(VERSION) --app-version $(VERSION) --destination target/charts
-
-.PHONY: helm-chart-publish ## Publish helm chart for the operator.
-helm-chart-publish: helm-chart-package ## Publish helm chart for the operator.
-	"$(HELM)" push target/charts/$(PROJECT_NAME)-$(VERSION).tgz $(OCI_REGISTRY)
 
 ##@ Deployment
 
@@ -285,6 +266,26 @@ endef
 define gomodver
 $(shell go list -m -f '{{if .Replace}}{{.Replace.Version}}{{else}}{{.Version}}{{end}}' $(1) 2>/dev/null)
 endef
+
+
+##@ Helm Charts
+
+OCI_REGISTRY ?= oci://quay.io/kubedoopcharts
+HELM ?= helm
+
+.PHONY: helm-crd-sync ## Sync CRDs to helm chart for the operator.
+helm-crd-sync: manifests kustomize ## Sync CRDs to helm chart for the operator
+	"$(KUSTOMIZE)" build config/crd > deploy/helm/$(PROJECT_NAME)/crds/crds.yaml
+
+.PHONY: helm-chart-package ## Package helm chart for the operator.
+helm-chart-package: ## Package helm chart for the operator.
+	mkdir -p target/charts
+	rm -rf target/charts/*.tgz
+	"$(HELM)" package deploy/helm/$(PROJECT_NAME) --version $(VERSION) --app-version $(VERSION) --destination target/charts
+
+.PHONY: helm-chart-publish ## Publish helm chart for the operator.
+helm-chart-publish: helm-chart-package ## Publish helm chart for the operator.
+	"$(HELM)" push target/charts/$(PROJECT_NAME)-$(VERSION).tgz $(OCI_REGISTRY)
 
 
 ##@ Chainsaw E2E

@@ -328,10 +328,11 @@ jobs:
           done
 
           # Install packaged operator chart
-          helm install --create-namespace --namespace superset-operators --wait superset-operator ./target/charts/superset-operator-$VERSION.tgz
+          helm install --create-namespace --namespace superset-operator --wait superset-operator ./target/charts/superset-operator-$VERSION.tgz
 
           # E2E tests
           make chainsaw
+          ./bin/chainsaw test --test-dir ./test/e2e/
 
 
   release-chart:
