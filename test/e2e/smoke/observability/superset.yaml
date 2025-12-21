@@ -1,0 +1,27 @@
+apiVersion: superset.kubedoop.dev/v1alpha1
+kind: SupersetCluster
+metadata:
+  name: test-superset-observability
+spec:
+  image:
+    productVersion: ($values.product_version)
+  clusterConfig:
+    credentialsSecret: superset-credentials
+  node:
+    roleGroups:
+      default:
+        replicas: 2
+---
+apiVersion: v1
+kind: Secret
+metadata:
+  name: superset-credentials
+type: Opaque
+stringData:
+  adminUser.username: admin
+  adminUser.password: admin
+  adminUser.email: admin@example.com
+  adminUser.firstname: Superset
+  adminUser.lastname: Admin
+  appSecretKey: superset-secret-key
+  connections.sqlalchemyDatabaseUri: postgresql://superset:superset@superset-postgres:5432/superset
