@@ -10,7 +10,7 @@ var (
 		},
 		{
 			Name:          "metrics",
-			ContainerPort: 9012, // stastsd port
+			ContainerPort: 9102, // statsd-exporter metrics port
 		},
 	}
 )

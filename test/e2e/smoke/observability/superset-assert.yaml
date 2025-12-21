@@ -12,7 +12,7 @@ metadata:
     prometheus.io/path: "/metrics"
     prometheus.io/scheme: "http"
 spec:
-  clusterIP: None
+  type: NodePort
   ports:
     - name: http
       port: 8088
@@ -31,5 +31,5 @@ kind: StatefulSet
 metadata:
   name: test-superset-observability-node-default
 status:
-  availableReplicas: 2
+  readyReplicas: 2
   replicas: 2
