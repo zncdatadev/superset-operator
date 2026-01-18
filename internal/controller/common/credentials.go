@@ -19,7 +19,7 @@ var (
 )
 
 func InjectCredentials(credentialsSecret string, builder builder.ContainerBuilder) {
-	envvars := []corev1.EnvVar{}
+	envvars := make([]corev1.EnvVar, 0, len(credentialsKeyMapping))
 	for _, pair := range credentialsKeyMapping {
 		envvars = append(envvars, corev1.EnvVar{
 			Name: pair[0],
