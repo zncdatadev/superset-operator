@@ -1,0 +1,35 @@
+apiVersion: v1
+kind: Service
+metadata:
+  name: test-superset-observability-node-default
+  labels:
+    app.kubernetes.io/instance: test-superset-observability
+    app.kubernetes.io/component: node
+    app.kubernetes.io/role-group: default
+  annotations:
+    prometheus.io/scrape: "true"
+    prometheus.io/port: "9012"
+    prometheus.io/path: "/metrics"
+    prometheus.io/scheme: "http"
+spec:
+  type: NodePort
+  ports:
+    - name: http
+      port: 8088
+      protocol: TCP
+      targetPort: http
+    - name: metrics
+      port: 9012
+      protocol: TCP
+      targetPort: metrics
+  selector:
+    app.kubernetes.io/instance: test-superset-observability
+    app.kubernetes.io/component: node
+---
+apiVersion: apps/v1
+kind: StatefulSet
+metadata:
+  name: test-superset-observability-node-default
+status:
+  readyReplicas: 2
+  replicas: 2
