@@ -8,7 +8,7 @@ metadata:
     app.kubernetes.io/role-group: default
   annotations:
     prometheus.io/scrape: "true"
-    prometheus.io/port: "9012"
+    prometheus.io/port: "9102"
     prometheus.io/path: "/metrics"
     prometheus.io/scheme: "http"
 spec:
@@ -19,7 +19,7 @@ spec:
       protocol: TCP
       targetPort: http
     - name: metrics
-      port: 9012
+      port: 9102
       protocol: TCP
       targetPort: metrics
   selector:
