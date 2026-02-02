@@ -1,0 +1,59 @@
+Version: v0.2.12
+No configuration provided but found default file: .chainsaw.yaml
+Loading config (.chainsaw.yaml)...
+- Using test file: chainsaw-test
+- TestDirs [./test/e2e/smoke/observability/]
+- SkipDelete true
+- FailFast true
+- ReportFormat ''
+- ReportName 'chainsaw-report'
+- Namespace 'chainsaw'
+- FullName false
+- IncludeTestRegex ''
+- ExcludeTestRegex ''
+- ApplyTimeout 2m0s
+- AssertTimeout 3m20s
+- CleanupTimeout 2m0s
+- DeleteTimeout 2m0s
+- ErrorTimeout 3m0s
+- ExecTimeout 2m0s
+- DeletionPropagationPolicy Background
+- Parallel 1
+- ForceTerminationGracePeriod 10s
+- Template true
+- Clusters map[cluster-1:{kind-kubeconfig-1.26.15 }]
+- NoCluster false
+- PauseOnFailure false
+Loading tests...
+- smoke-observability (./test/e2e/smoke/observability/)
+Loading values...
+Running tests...
+=== RUN   chainsaw
+=== PAUSE chainsaw
+=== CONT  chainsaw
+    l.go:52: | 20:32:58 | [32;1mchainsaw[0;22m | [32;1m@chainsaw[0;22m | [32;1mCREATE[0;22m    | [32;1mOK[0;22m    | v1/Namespace @ chainsaw
+=== RUN   chainsaw/smoke-observability
+=== PAUSE chainsaw/smoke-observability
+=== CONT  chainsaw/smoke-observability
+    l.go:52: | 20:32:58 | [36;1msmoke-observability[0;22m | [36;1minstall postgresql         [0;22m | [36;1mTRY[0;22m       | [36;1mBEGIN[0;22m |
+    l.go:52: | 20:32:58 | [36;1msmoke-observability[0;22m | [36;1minstall postgresql         [0;22m | [36;1mAPPLY[0;22m     | [36;1mRUN[0;22m   | apps/v1/StatefulSet @ chainsaw/superset-postgres
+    l.go:52: | 20:32:58 | [32;1msmoke-observability[0;22m | [32;1minstall postgresql         [0;22m | [32;1mCREATE[0;22m    | [32;1mOK[0;22m    | apps/v1/StatefulSet @ chainsaw/superset-postgres
+    l.go:52: | 20:32:58 | [32;1msmoke-observability[0;22m | [32;1minstall postgresql         [0;22m | [32;1mAPPLY[0;22m     | [32;1mDONE[0;22m  | apps/v1/StatefulSet @ chainsaw/superset-postgres
+    l.go:52: | 20:32:58 | [36;1msmoke-observability[0;22m | [36;1minstall postgresql         [0;22m | [36;1mAPPLY[0;22m     | [36;1mRUN[0;22m   | v1/Service @ chainsaw/superset-postgres
+    l.go:52: | 20:32:58 | [32;1msmoke-observability[0;22m | [32;1minstall postgresql         [0;22m | [32;1mCREATE[0;22m    | [32;1mOK[0;22m    | v1/Service @ chainsaw/superset-postgres
+    l.go:52: | 20:32:58 | [32;1msmoke-observability[0;22m | [32;1minstall postgresql         [0;22m | [32;1mAPPLY[0;22m     | [32;1mDONE[0;22m  | v1/Service @ chainsaw/superset-postgres
+    l.go:52: | 20:32:58 | [36;1msmoke-observability[0;22m | [36;1minstall postgresql         [0;22m | [36;1mASSERT[0;22m    | [36;1mRUN[0;22m   | v1/Service @ chainsaw/superset-postgres
+    l.go:52: | 20:32:58 | [32;1msmoke-observability[0;22m | [32;1minstall postgresql         [0;22m | [32;1mASSERT[0;22m    | [32;1mDONE[0;22m  | v1/Service @ chainsaw/superset-postgres
+    l.go:52: | 20:32:58 | [36;1msmoke-observability[0;22m | [36;1minstall postgresql         [0;22m | [36;1mASSERT[0;22m    | [36;1mRUN[0;22m   | apps/v1/StatefulSet @ chainsaw/superset-postgres
+    l.go:52: | 20:33:13 | [32;1msmoke-observability[0;22m | [32;1minstall postgresql         [0;22m | [32;1mASSERT[0;22m    | [32;1mDONE[0;22m  | apps/v1/StatefulSet @ chainsaw/superset-postgres
+    l.go:52: | 20:33:13 | [36;1msmoke-observability[0;22m | [36;1minstall postgresql         [0;22m | [36;1mTRY[0;22m       | [36;1mEND[0;22m   |
+    l.go:52: | 20:33:13 | [36;1msmoke-observability[0;22m | [36;1minstall superset           [0;22m | [36;1mTRY[0;22m       | [36;1mBEGIN[0;22m |
+    l.go:52: | 20:33:13 | [36;1msmoke-observability[0;22m | [36;1minstall superset           [0;22m | [36;1mAPPLY[0;22m     | [36;1mRUN[0;22m   | superset.kubedoop.dev/v1alpha1/SupersetCluster @ chainsaw/test-superset-observability
+    l.go:52: | 20:33:13 | [32;1msmoke-observability[0;22m | [32;1minstall superset           [0;22m | [32;1mCREATE[0;22m    | [32;1mOK[0;22m    | superset.kubedoop.dev/v1alpha1/SupersetCluster @ chainsaw/test-superset-observability
+    l.go:52: | 20:33:13 | [32;1msmoke-observability[0;22m | [32;1minstall superset           [0;22m | [32;1mAPPLY[0;22m     | [32;1mDONE[0;22m  | superset.kubedoop.dev/v1alpha1/SupersetCluster @ chainsaw/test-superset-observability
+    l.go:52: | 20:33:13 | [36;1msmoke-observability[0;22m | [36;1minstall superset           [0;22m | [36;1mAPPLY[0;22m     | [36;1mRUN[0;22m   | v1/Secret @ chainsaw/superset-credentials
+    l.go:52: | 20:33:14 | [32;1msmoke-observability[0;22m | [32;1minstall superset           [0;22m | [32;1mCREATE[0;22m    | [32;1mOK[0;22m    | v1/Secret @ chainsaw/superset-credentials
+    l.go:52: | 20:33:14 | [32;1msmoke-observability[0;22m | [32;1minstall superset           [0;22m | [32;1mAPPLY[0;22m     | [32;1mDONE[0;22m  | v1/Secret @ chainsaw/superset-credentials
+    l.go:52: | 20:33:14 | [36;1msmoke-observability[0;22m | [36;1minstall superset           [0;22m | [36;1mASSERT[0;22m    | [36;1mRUN[0;22m   | v1/Service @ chainsaw/test-superset-observability-node-default
+    l.go:52: | 20:33:14 | [32;1msmoke-observability[0;22m | [32;1minstall superset           [0;22m | [32;1mASSERT[0;22m    | [32;1mDONE[0;22m  | v1/Service @ chainsaw/test-superset-observability-node-default
+    l.go:52: | 20:33:14 | [36;1msmoke-observability[0;22m | [36;1minstall superset           [0;22m | [36;1mASSERT[0;22m    | [36;1mRUN[0;22m   | apps/v1/StatefulSet @ chainsaw/test-superset-observability-node-default
