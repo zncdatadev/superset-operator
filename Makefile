@@ -356,3 +356,11 @@ cleanup-chainsaw-e2e: ## Run the chainsaw cleanup
 cleanup-chainsaw-cluster: ## Tear down the Kind cluster used for chainsaw e2e tests
 	$(KIND) delete cluster --name $(CHAINSAW_CLUSTER)
 	rm -f $(CHAINSAW_KUBECONFIG)
+
+.PHONY: chart-e2e
+chart-e2e: setup-chainsaw-cluster chainsaw docker-build helm-chart-package ## Run e2e tests with Helm chart deployment
+	"$(KIND)" --name $(CHAINSAW_CLUSTER) load docker-image "$(IMG)"
+	"$(HELM)" upgrade --install --create-namespace --namespace superset-operator \
+		--kubeconfig $(CHAINSAW_KUBECONFIG) --wait $(PROJECT_NAME) \
+		target/charts/$(PROJECT_NAME)-$(VERSION).tgz
+	KUBECONFIG=$(CHAINSAW_KUBECONFIG) $(CHAINSAW) test --config ./test/e2e/.chainsaw.yaml --test-dir ./test/e2e/
