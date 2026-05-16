@@ -37,10 +37,15 @@ func NewReconciler(
 }
 
 func (r *Reconciler) GetImage() *util.Image {
+	productVersion := supersetv1alpha1.DefaultProductVersion
+	if r.Spec.Image.ProductVersion != "" {
+		productVersion = r.Spec.Image.ProductVersion
+	}
+
 	image := util.NewImage(
 		supersetv1alpha1.DefaultProductName,
 		version.BuildVersion,
-		supersetv1alpha1.DefaultProductVersion,
+		productVersion,
 		func(options *util.ImageOptions) {
 			options.Custom = r.Spec.Image.Custom
 			options.Repo = r.Spec.Image.Repo
