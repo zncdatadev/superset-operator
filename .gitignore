@@ -50,6 +50,3 @@ cover.out
 # helm package directory
 target
 .worktree/
-
-# generated chainsaw values
-test/e2e/.values.yaml
