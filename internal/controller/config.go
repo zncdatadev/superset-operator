@@ -12,11 +12,13 @@ import (
 	supersetv1alpha1 "github.com/zncdatadev/superset-operator/api/v1alpha1"
 )
 
-// indent4 indents every line after the first by four spaces — the Gen 2
-// util.IndentTab4Spaces semantics, which keep the first line unindented. That matters:
-// these are Python modules, and indenting line one is an IndentationError.
+// indent4 expands tabs to four spaces — exactly the Gen 2 util.IndentTab4Spaces
+// semantics (despite its name, it never indented lines). Line indentation would break
+// the rendered files: they are Python modules, where a leading indent on any top-level
+// statement is an IndentationError. Tabs only appear inside block literals (e.g. the
+// AUTH_ROLES_MAPPING dict), where expansion keeps the source clean.
 func indent4(s string) string {
-	return strings.ReplaceAll(s, "\n", "\n    ")
+	return strings.ReplaceAll(s, "\t", "    ")
 }
 
 const (
