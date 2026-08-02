@@ -141,9 +141,11 @@ func (h *SupersetRoleGroupHandler) BuildResources(
 	}
 
 	// LDAP bind credentials arrive through a secret-operator CSI volume, injected by the
-	// framework's VolumeProvider path alongside the config volume.
+	// framework's VolumeProvider path alongside the config volume. Mounted under
+	// /kubedoop/secret (the kubedoop convention superset_config.py reads from), not the
+	// provisioner's /kubedoop/mount default.
 	if ldap != nil && ldap.BindCredentials != nil {
-		provisioner := security.NewSecretProvisioner()
+		provisioner := security.NewSecretProvisioner().WithMountBasePath(constant.KubedoopSecretDir)
 		registration := security.CredentialsVolume(ldap.BindCredentials.SecretClass, ldap.BindCredentials.SecretClass)
 		if scope := secretScope(ldap.BindCredentials.Scope); scope != "" {
 			registration = registration.WithScope(scope)
