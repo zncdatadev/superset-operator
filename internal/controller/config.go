@@ -12,17 +12,11 @@ import (
 	supersetv1alpha1 "github.com/zncdatadev/superset-operator/api/v1alpha1"
 )
 
-// indent4 indents every non-empty line by four spaces. The product config files are
-// emitted as readable modules; indentation is cosmetic but kept stable across renders
-// so resource diffs stay meaningful.
+// indent4 indents every line after the first by four spaces — the Gen 2
+// util.IndentTab4Spaces semantics, which keep the first line unindented. That matters:
+// these are Python modules, and indenting line one is an IndentationError.
 func indent4(s string) string {
-	lines := strings.Split(s, "\n")
-	for i, line := range lines {
-		if line != "" {
-			lines[i] = "    " + line
-		}
-	}
-	return strings.Join(lines, "\n")
+	return strings.ReplaceAll(s, "\n", "\n    ")
 }
 
 const (
