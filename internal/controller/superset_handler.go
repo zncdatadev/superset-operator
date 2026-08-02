@@ -16,7 +16,6 @@ import (
 	"github.com/zncdatadev/operator-go/pkg/vector"
 	appsv1 "k8s.io/api/apps/v1"
 	corev1 "k8s.io/api/core/v1"
-	"k8s.io/apimachinery/pkg/api/resource"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 	"k8s.io/apimachinery/pkg/runtime"
 	"k8s.io/apimachinery/pkg/util/intstr"
@@ -118,6 +117,23 @@ func NewSupersetRoleGroupHandler(scheme *runtime.Scheme) *SupersetRoleGroupHandl
 		{Name: portMetricsName, Port: metricsPort, Protocol: corev1.ProtocolTCP, TargetPort: intstr.FromString(portMetricsName)},
 	})
 
+	// Logging: this producer declaration drives the framework-owned pipeline — log_config.py
+	// (python dictConfig with the rolling file appender), vector.yaml and the Vector sidecar
+	// registration. The producer is named "superset", NOT the pod container name "node":
+	// Superset's log contract pins the Vector event's container tag (derived from the
+	// per-container log directory) to the PRODUCT name, asserted byte-for-byte by the e2e
+	// suite. The framework couples that tag to the container name (zncdatadev/operator-go#587),
+	// so declaring the real container name would break the contract; BuildResources below
+	// closes the resulting gap by mounting the shared log volume on the "node" container.
+	base.LoggingContainers = []productlogging.ContainerLogging{
+		{
+			Container:   supersetLogContainer,
+			Framework:   productlogging.LoggingFrameworkPython,
+			LogFileName: supersetLogFileName,
+		},
+	}
+	base.LogVolumeSize = maxLogFileSize
+
 	return &SupersetRoleGroupHandler{BaseRoleGroupHandler: base}
 }
 
@@ -161,20 +177,6 @@ func (h *SupersetRoleGroupHandler) BuildResources(
 		listenerClass = listener.ListenerClass(cr.Spec.ClusterConfig.ListenerClass)
 	}
 	buildCtx.ListenerClass = listenerClass
-
-	// The framework gates the Vector log pipeline on enableVectorAgent AND a resolvable
-	// aggregator address; ride that gate so the sidecar, the vector.yaml ConfigMap entry and
-	// the log_config.py file appender always agree. The provider's image is left empty: the
-	// framework resolves the product image once and propagates it to every sidecar config.
-	vectorActive := buildCtx.VectorLogPipelineActive != nil && *buildCtx.VectorLogPipelineActive
-	if vectorActive {
-		buildCtx.SidecarManager.Register(vector.NewVectorSidecarProvider(
-			"",
-			vector.WithConfigMapName(buildCtx.ResourceName),
-			vector.WithProducers([]string{supersetv1alpha1.RoleNameNode}),
-			vector.WithLogVolumeSize(resource.MustParse(maxLogFileSize)),
-		), nil)
-	}
 
 	// Main container customization runs BEFORE podOverrides are strategic-merged, so user
 	// overrides keep precedence over these product defaults.
@@ -229,9 +231,21 @@ func (h *SupersetRoleGroupHandler) BuildResources(
 
 	addMetricsContainer(resources.StatefulSet)
 	addPrometheusAnnotations(resources.Service)
-	if err := renderConfigMapData(resources.ConfigMap, buildCtx, authProvider, cr.Spec.ClusterConfig.Authentication, vectorActive); err != nil {
-		return nil, err
+
+	// The Vector provider RW-mounts the shared log volume on the declared PRODUCER containers,
+	// but the producer is named "superset" (the log tag contract) while the pod container that
+	// writes the logs is "node" — so the mount is added here. See zncdatadev/operator-go#587.
+	vectorActive := buildCtx.VectorLogPipelineActive != nil && *buildCtx.VectorLogPipelineActive
+	if vectorActive && resources.StatefulSet != nil {
+		if main := findContainer(&resources.StatefulSet.Spec.Template.Spec, supersetv1alpha1.RoleNameNode); main != nil {
+			main.VolumeMounts = append(main.VolumeMounts, corev1.VolumeMount{
+				Name:      vector.VectorLogVolumeName,
+				MountPath: vector.VectorLogMountPath,
+			})
+		}
 	}
+
+	renderConfigMapData(resources.ConfigMap, authProvider, cr.Spec.ClusterConfig.Authentication, vectorActive)
 
 	return resources, nil
 }
@@ -276,56 +290,25 @@ func addPrometheusAnnotations(svc *corev1.Service) {
 	svc.Annotations["prometheus.io/scheme"] = "http"
 }
 
-// renderConfigMapData fills the framework-built ConfigMap with the product files:
-// superset_config.py (with the resolved authentication section), log_config.py (framework
-// python dictConfig writing /kubedoop/log/superset/superset.py.json) and, when the Vector
-// pipeline is active, vector.yaml rendered from the shared framework template.
+// renderConfigMapData fills the framework-built ConfigMap with the one product file the
+// merge pipeline cannot model: superset_config.py (a free-form Python module, with the
+// resolved authentication section). log_config.py and vector.yaml are framework-rendered
+// from the LoggingContainers producer declaration. configOverrides for superset_config.py
+// were never supported (the e2e case for it is commented out upstream), and writing
+// unconditionally keeps that behavior.
 func renderConfigMapData(
 	cm *corev1.ConfigMap,
-	buildCtx *reconciler.RoleGroupBuildContext,
 	authProvider *authv1alpha1.AuthenticationProvider,
 	auth *supersetv1alpha1.AuthenticationSpec,
 	vectorActive bool,
-) error {
+) {
 	if cm == nil {
-		return nil
+		return
 	}
 	if cm.Data == nil {
 		cm.Data = make(map[string]string)
 	}
-
-	// superset_config.py is a free-form Python module, not key=value, so it is rendered
-	// here as a whole file rather than flowing through the merge pipeline. configOverrides
-	// for it were never supported (the e2e case for it is commented out upstream), and
-	// writing unconditionally keeps that behavior.
 	cm.Data[supersetConfigFilename] = renderSupersetConfig(authProvider, auth, vectorActive)
-
-	_, logContent, err := reconciler.RenderContainerLogging(buildCtx, productlogging.ContainerLogging{
-		Container:   supersetLogContainer,
-		Framework:   productlogging.LoggingFrameworkPython,
-		LogFileName: supersetLogFileName,
-	})
-	if err != nil {
-		return fmt.Errorf("render log config: %w", err)
-	}
-	cm.Data[logConfigFilename] = logContent
-
-	if vectorActive {
-		vectorYaml, err := vector.RenderVectorConfig(vector.VectorConfigData{
-			LogDir:            constant.KubedoopLogDir,
-			AggregatorAddress: buildCtx.VectorAggregatorAddress,
-			Namespace:         buildCtx.ClusterNamespace,
-			ClusterName:       buildCtx.ClusterName,
-			RoleName:          buildCtx.RoleName,
-			RoleGroupName:     buildCtx.RoleGroupName,
-		})
-		if err != nil {
-			return fmt.Errorf("render vector config: %w", err)
-		}
-		cm.Data[vector.VectorConfigFileName] = vectorYaml
-	}
-
-	return nil
 }
 
 // fetchAuthProvider resolves the AuthenticationClass referenced by the cluster config,
