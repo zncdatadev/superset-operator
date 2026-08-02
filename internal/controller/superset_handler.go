@@ -9,6 +9,7 @@ import (
 	authv1alpha1 "github.com/zncdatadev/operator-go/pkg/apis/authentication/v1alpha1"
 	commonsv1alpha1 "github.com/zncdatadev/operator-go/pkg/apis/commons/v1alpha1"
 	"github.com/zncdatadev/operator-go/pkg/constant"
+	"github.com/zncdatadev/operator-go/pkg/listener"
 	"github.com/zncdatadev/operator-go/pkg/productlogging"
 	"github.com/zncdatadev/operator-go/pkg/reconciler"
 	"github.com/zncdatadev/operator-go/pkg/security"
@@ -75,8 +76,11 @@ var credentialsKeyMapping = [][]string{
 // SupersetRoleGroupHandler builds Superset role group resources. It embeds the SDK's
 // BaseRoleGroupHandler so the framework owns the bulk of resource orchestration —
 // ConfigMap, Services, the StatefulSet skeleton (sidecars and podOverrides applied by
-// the framework), the role-level PDB and the ServiceAccount. The override below only
-// adds the product-specific bits the merge pipeline cannot model declaratively.
+// the framework), the role-level PDB and the ServiceAccount. Product-specific behavior
+// is declared BEFORE the framework builds, through the per-call build context:
+// MainContainerCustomizer for the entrypoint/env/probes, ListenerClass for the Service
+// type, VolumeProviders for LDAP credentials and the SidecarManager for the Vector
+// agent — so user podOverrides keep precedence over product defaults.
 type SupersetRoleGroupHandler struct {
 	*reconciler.BaseRoleGroupHandler[*supersetv1alpha1.SupersetCluster]
 }
@@ -84,9 +88,22 @@ type SupersetRoleGroupHandler struct {
 // Ensure interface implementation.
 var _ reconciler.RoleGroupHandler[*supersetv1alpha1.SupersetCluster] = &SupersetRoleGroupHandler{}
 
-// NewSupersetRoleGroupHandler creates the handler and configures the framework defaults.
+// NewSupersetRoleGroupHandler creates the handler and configures the reconcile-invariant
+// framework defaults.
 func NewSupersetRoleGroupHandler(scheme *runtime.Scheme) *SupersetRoleGroupHandler {
 	base := reconciler.NewBaseRoleGroupHandler[*supersetv1alpha1.SupersetCluster]("", scheme)
+
+	// ProductName names the product (app.kubernetes.io/name, the version label and the
+	// repository path segment); ImageDefaults fills whatever spec.image leaves empty,
+	// evaluated every reconcile. KubedoopVersion defaults to the operator's own build
+	// version — quay.io/zncdatadev publishes no bare product tags, and a webhook default
+	// would freeze the suffix at the admitting operator's version.
+	base.ProductName = supersetv1alpha1.DefaultProductName
+	base.ImageDefaults = commonsv1alpha1.ImageSpec{
+		Repo:            supersetv1alpha1.DefaultRepository,
+		ProductVersion:  supersetv1alpha1.DefaultProductVersion,
+		KubedoopVersion: version.BuildVersion,
+	}
 
 	// The main container keeps the Gen 2 name "node" — rendered resource selectors and
 	// downstream tooling reference it.
@@ -104,25 +121,16 @@ func NewSupersetRoleGroupHandler(scheme *runtime.Scheme) *SupersetRoleGroupHandl
 	return &SupersetRoleGroupHandler{BaseRoleGroupHandler: base}
 }
 
-// BuildResources delegates the framework-owned skeleton, then appends the product-specific
-// pieces: the resolved product image, the Superset entrypoint and credentials wiring, the
-// statsd-exporter metrics sidecar, LDAP bind-credential volumes, the NodePort service type
-// with Prometheus scrape annotations, and the rendered superset_config.py / log_config.py /
-// vector.yaml ConfigMap entries.
+// BuildResources declares the product-specific inputs on the per-call build context,
+// delegates the framework-owned skeleton, then appends only what no pre-build hook
+// covers: the statsd-exporter container, the Prometheus scrape annotations and the
+// rendered ConfigMap files.
 func (h *SupersetRoleGroupHandler) BuildResources(
 	ctx context.Context,
 	k8sClient client.Client,
 	cr *supersetv1alpha1.SupersetCluster,
 	buildCtx *reconciler.RoleGroupBuildContext,
 ) (*reconciler.RoleGroupResources, error) {
-	image := resolveImage(cr)
-	h.Image = image
-	h.ImagePullPolicy = resolvePullPolicy(cr)
-
-	// Without ProductName the framework leaves app.kubernetes.io/name unset; stamp it so
-	// metadata labels stay continuous with the Gen 2 operator's rendered resources.
-	buildCtx.ClusterLabels[constant.LabelKubernetesName] = supersetv1alpha1.DefaultProductName
-
 	authProvider, err := fetchAuthProvider(ctx, k8sClient, cr)
 	if err != nil {
 		return nil, err
@@ -132,9 +140,8 @@ func (h *SupersetRoleGroupHandler) BuildResources(
 		ldap = authProvider.LDAP
 	}
 
-	// LDAP bind credentials arrive through a secret-operator CSI volume. Registered before
-	// the base build so the volume and its main-container mount flow through the framework's
-	// VolumeProvider path.
+	// LDAP bind credentials arrive through a secret-operator CSI volume, injected by the
+	// framework's VolumeProvider path alongside the config volume.
 	if ldap != nil && ldap.BindCredentials != nil {
 		provisioner := security.NewSecretProvisioner()
 		registration := security.CredentialsVolume(ldap.BindCredentials.SecretClass, ldap.BindCredentials.SecretClass)
@@ -145,17 +152,72 @@ func (h *SupersetRoleGroupHandler) BuildResources(
 		buildCtx.VolumeProviders = append(buildCtx.VolumeProviders, provisioner)
 	}
 
+	// Listener class: the CR's clusterConfig value, else the product's historical default
+	// (the Gen 2 operator hardcoded external-unstable, which ServiceTypeFor maps to NodePort).
+	listenerClass := listener.ListenerClassExternalUnstable
+	if cr.Spec.ClusterConfig != nil && cr.Spec.ClusterConfig.ListenerClass != "" {
+		listenerClass = listener.ListenerClass(cr.Spec.ClusterConfig.ListenerClass)
+	}
+	buildCtx.ListenerClass = listenerClass
+
 	// The framework gates the Vector log pipeline on enableVectorAgent AND a resolvable
 	// aggregator address; ride that gate so the sidecar, the vector.yaml ConfigMap entry and
-	// the log_config.py file appender always agree.
+	// the log_config.py file appender always agree. The provider's image is left empty: the
+	// framework resolves the product image once and propagates it to every sidecar config.
 	vectorActive := buildCtx.VectorLogPipelineActive != nil && *buildCtx.VectorLogPipelineActive
 	if vectorActive {
 		buildCtx.SidecarManager.Register(vector.NewVectorSidecarProvider(
-			image,
+			"",
 			vector.WithConfigMapName(buildCtx.ResourceName),
 			vector.WithProducers([]string{supersetv1alpha1.RoleNameNode}),
 			vector.WithLogVolumeSize(resource.MustParse(maxLogFileSize)),
 		), nil)
+	}
+
+	// Main container customization runs BEFORE podOverrides are strategic-merged, so user
+	// overrides keep precedence over these product defaults.
+	buildCtx.MainContainerCustomizer = func(c *corev1.Container) error {
+		c.Command = []string{"sh", "-x", "-c"}
+		c.Args = []string{mainContainerCommands()}
+
+		env := []corev1.EnvVar{
+			{Name: "SUPERSET_PORT", Value: strconv.FormatInt(int64(httpPort), 10)},
+		}
+		if cr.Spec.ClusterConfig != nil && cr.Spec.ClusterConfig.CredentialsSecret != "" {
+			env = append(env, credentialsEnv(cr.Spec.ClusterConfig.CredentialsSecret)...)
+		}
+		c.Env = append(c.Env, env...)
+
+		if authProvider != nil && authProvider.OIDC != nil &&
+			cr.Spec.ClusterConfig != nil && cr.Spec.ClusterConfig.Authentication != nil &&
+			cr.Spec.ClusterConfig.Authentication.Oidc != nil {
+			c.EnvFrom = append(c.EnvFrom, corev1.EnvFromSource{
+				SecretRef: &corev1.SecretEnvSource{
+					LocalObjectReference: corev1.LocalObjectReference{
+						Name: cr.Spec.ClusterConfig.Authentication.Oidc.ClientCredentialsSecret,
+					},
+				},
+			})
+		}
+
+		// Superset serves its health endpoint over HTTP; replace the framework's TCP
+		// readiness probe with the product check for both liveness and readiness.
+		probe := &corev1.Probe{
+			ProbeHandler: corev1.ProbeHandler{
+				HTTPGet: &corev1.HTTPGetAction{
+					Path: "/health",
+					Port: intstr.FromInt32(httpPort),
+				},
+			},
+			InitialDelaySeconds: 30,
+			PeriodSeconds:       10,
+			TimeoutSeconds:      5,
+			FailureThreshold:    3,
+			SuccessThreshold:    1,
+		}
+		c.LivenessProbe = probe
+		c.ReadinessProbe = probe
+		return nil
 	}
 
 	resources, err := h.BaseRoleGroupHandler.BuildResources(ctx, k8sClient, cr, buildCtx)
@@ -163,10 +225,8 @@ func (h *SupersetRoleGroupHandler) BuildResources(
 		return nil, err
 	}
 
-	if err := h.customizeStatefulSet(resources.StatefulSet, cr, authProvider, image); err != nil {
-		return nil, err
-	}
-	customizeService(resources.Service)
+	addMetricsContainer(resources.StatefulSet)
+	addPrometheusAnnotations(resources.Service)
 	if err := renderConfigMapData(resources.ConfigMap, buildCtx, authProvider, cr.Spec.ClusterConfig.Authentication, vectorActive); err != nil {
 		return nil, err
 	}
@@ -174,88 +234,37 @@ func (h *SupersetRoleGroupHandler) BuildResources(
 	return resources, nil
 }
 
-// customizeStatefulSet mutates only the product-specific parts of the framework-built
-// StatefulSet: the main container entrypoint, probes and environment, plus the
-// statsd-exporter metrics sidecar.
-func (h *SupersetRoleGroupHandler) customizeStatefulSet(
-	sts *appsv1.StatefulSet,
-	cr *supersetv1alpha1.SupersetCluster,
-	authProvider *authv1alpha1.AuthenticationProvider,
-	image string,
-) error {
-	podSpec := &sts.Spec.Template.Spec
-
-	main := findContainer(podSpec, supersetv1alpha1.RoleNameNode)
+// addMetricsContainer appends the statsd-exporter sidecar: Superset emits StatsD
+// counters over UDP and the exporter serves them as Prometheus metrics on the
+// Service's named "metrics" port. It reuses the resolved product image (read back from
+// the framework-built main container) and runs as a regular container, matching the
+// Gen 2 pod shape. There is no pre-build hook for extra regular containers — a
+// podOverrides patch naming "metrics" would collide; the Gen 2 operator had the same
+// theoretical edge and no user hit it.
+func addMetricsContainer(sts *appsv1.StatefulSet) {
+	if sts == nil {
+		return
+	}
+	main := findContainer(&sts.Spec.Template.Spec, supersetv1alpha1.RoleNameNode)
 	if main == nil {
-		return fmt.Errorf("main container %q not found in built StatefulSet %s/%s",
-			supersetv1alpha1.RoleNameNode, sts.Namespace, sts.Name)
+		return
 	}
-
-	main.Command = []string{"sh", "-x", "-c"}
-	main.Args = []string{mainContainerCommands()}
-
-	// Product environment. Appended after the framework-injected merged config so user
-	// envOverrides (injected by the framework) keep their position; the names here never
-	// collide with user overrides in practice.
-	env := []corev1.EnvVar{
-		{Name: "SUPERSET_PORT", Value: strconv.FormatInt(int64(httpPort), 10)},
-	}
-	if cr.Spec.ClusterConfig != nil && cr.Spec.ClusterConfig.CredentialsSecret != "" {
-		env = append(env, credentialsEnv(cr.Spec.ClusterConfig.CredentialsSecret)...)
-	}
-	main.Env = append(main.Env, env...)
-
-	if authProvider != nil && authProvider.OIDC != nil &&
-		cr.Spec.ClusterConfig != nil && cr.Spec.ClusterConfig.Authentication != nil &&
-		cr.Spec.ClusterConfig.Authentication.Oidc != nil {
-		main.EnvFrom = append(main.EnvFrom, corev1.EnvFromSource{
-			SecretRef: &corev1.SecretEnvSource{
-				LocalObjectReference: corev1.LocalObjectReference{
-					Name: cr.Spec.ClusterConfig.Authentication.Oidc.ClientCredentialsSecret,
-				},
-			},
-		})
-	}
-
-	// Superset serves its health endpoint over HTTP; replace the framework's TCP readiness
-	// probe with the product check for both liveness and readiness.
-	probe := &corev1.Probe{
-		ProbeHandler: corev1.ProbeHandler{
-			HTTPGet: &corev1.HTTPGetAction{
-				Path: "/health",
-				Port: intstr.FromInt32(httpPort),
-			},
-		},
-		InitialDelaySeconds: 30,
-		PeriodSeconds:       10,
-		TimeoutSeconds:      5,
-		FailureThreshold:    3,
-		SuccessThreshold:    1,
-	}
-	main.LivenessProbe = probe
-	main.ReadinessProbe = probe
-
-	// Superset emits StatsD counters over UDP; the exporter sidecar serves them as
-	// Prometheus metrics on the Service's named "metrics" port.
-	podSpec.Containers = append(podSpec.Containers, corev1.Container{
+	sts.Spec.Template.Spec.Containers = append(sts.Spec.Template.Spec.Containers, corev1.Container{
 		Name:            metricsContainerName,
-		Image:           image,
-		ImagePullPolicy: h.ImagePullPolicy,
+		Image:           main.Image,
+		ImagePullPolicy: main.ImagePullPolicy,
 		Command:         []string{"sh", "-x", "-c"},
 		Args:            []string{metricsContainerCommands()},
 	})
-
-	return nil
 }
 
-// customizeService forces the NodePort type the product has always exposed (the Gen 2
-// operator hardcoded the external-unstable listener class) and advertises the metrics
-// endpoint to Prometheus scrapers unconditionally, matching the previous annotations.
-func customizeService(svc *corev1.Service) {
+// addPrometheusAnnotations advertises the metrics endpoint to Prometheus scrapers
+// unconditionally, matching the Gen 2 operator's always-on Service annotations. The
+// Service type itself is framework-owned via buildCtx.ListenerClass.
+func addPrometheusAnnotations(svc *corev1.Service) {
 	if svc == nil {
 		return
 	}
-	svc.Spec.Type = corev1.ServiceTypeNodePort
 	if svc.Annotations == nil {
 		svc.Annotations = make(map[string]string)
 	}
@@ -315,39 +324,6 @@ func renderConfigMapData(
 	}
 
 	return nil
-}
-
-// resolveImage reproduces the Gen 2 image resolution: {repo}/superset:{productVersion}
-// always carries the -kubedoop{kubedoopVersion} suffix, defaulting to the operator's own
-// build version — quay.io/zncdatadev publishes no bare product tags.
-func resolveImage(cr *supersetv1alpha1.SupersetCluster) string {
-	img := cr.Spec.Image
-	if img == nil {
-		img = &supersetv1alpha1.ImageSpec{}
-	}
-	if img.Custom != "" {
-		return img.Custom
-	}
-	repo := img.Repo
-	if repo == "" {
-		repo = supersetv1alpha1.DefaultRepository
-	}
-	productVersion := img.ProductVersion
-	if productVersion == "" {
-		productVersion = supersetv1alpha1.DefaultProductVersion
-	}
-	kubedoopVersion := img.KubedoopVersion
-	if kubedoopVersion == "" {
-		kubedoopVersion = version.BuildVersion
-	}
-	return fmt.Sprintf("%s/%s:%s-kubedoop%s", repo, supersetv1alpha1.DefaultProductName, productVersion, kubedoopVersion)
-}
-
-func resolvePullPolicy(cr *supersetv1alpha1.SupersetCluster) corev1.PullPolicy {
-	if cr.Spec.Image != nil && cr.Spec.Image.PullPolicy != nil {
-		return *cr.Spec.Image.PullPolicy
-	}
-	return corev1.PullIfNotPresent
 }
 
 // fetchAuthProvider resolves the AuthenticationClass referenced by the cluster config,
