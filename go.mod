@@ -11,11 +11,7 @@ require (
 	sigs.k8s.io/controller-runtime v0.23.3
 )
 
-// Development pin: Gen 3 lives only on operator-go main (no tag yet). Switched to the
-// pseudo-version v0.12.7-0.20260802110605-5463c14b2f40 (or newer) before the PR lands.
-replace github.com/zncdatadev/operator-go => /home/kevin/workspace/github/zncdata/operator-go
-
-require github.com/zncdatadev/operator-go v0.12.6
+require github.com/zncdatadev/operator-go v0.12.7-0.20260802145045-0ec90d7f0f53
 
 require (
 	cel.dev/expr v0.25.1 // indirect
