@@ -123,6 +123,19 @@ spec:
               --create-namespace \
               -f prometheus-values.yaml \
               --wait --timeout 5m
+    cleanup:
+      # Installed with helm, so uninstall it with helm. Leaving it for chainsaw's
+      # namespace deletion means the whole prometheus release - PVC included -
+      # has to be reclaimed inside the cleanup timeout, which is what pushed a
+      # run past `cleanup: 120s` with `context deadline exceeded`.
+      - script:
+          bindings:
+            - name: NAMESPACE
+              value: ($namespace)
+          content: |
+            #!/bin/bash
+            set -x
+            helm uninstall prometheus --namespace "$NAMESPACE" --wait --timeout 2m || true
 
   # 4. Verify Prometheus targets
   - name: verify prometheus targets
