@@ -43,18 +43,15 @@ spec:
           content: |
             set -eu
             # Deployment Spec Test Data
-            SUPERSET_NODE_DEFAULT=$(kubectl -n "$NAMESPACE" get sts test-superset-node-default -o yaml)
-            YQ_FILTER='
-              .spec.template.spec.containers[]
-              | select(.name == "node")
-              | .env[]
-              | select(.name == strenv(KEY) and .value == strenv(VALUE))
-            '
+            SUPERSET_NODE_ENV=$(
+              kubectl -n "$NAMESPACE" get sts test-superset-node-default \
+                -o go-template='{{range .spec.template.spec.containers}}{{if eq .name "node"}}{{range .env}}{{printf "%s=%s\n" .name .value}}{{end}}{{end}}{{end}}'
+            )
 
             # Deployment Spec Test Assertions
-            echo "$SUPERSET_NODE_DEFAULT" | KEY="COMMON_VAR" VALUE="group-value" yq -e "$YQ_FILTER"
-            echo "$SUPERSET_NODE_DEFAULT" | KEY="GROUP_VAR" VALUE="group-value" yq -e "$YQ_FILTER"
-            echo "$SUPERSET_NODE_DEFAULT" | KEY="ROLE_VAR" VALUE="role-value" yq -e "$YQ_FILTER"
+            printf '%s\n' "$SUPERSET_NODE_ENV" | grep -Fqx 'COMMON_VAR=group-value'
+            printf '%s\n' "$SUPERSET_NODE_ENV" | grep -Fqx 'GROUP_VAR=group-value'
+            printf '%s\n' "$SUPERSET_NODE_ENV" | grep -Fqx 'ROLE_VAR=role-value'
   - name: test config overrides
     try:
       - script:
@@ -65,8 +62,8 @@ spec:
             set -eu
 
             SUPERSET_CONFIG=$(
-              kubectl -n "$NAMESPACE" get cm test-superset-node-default -o yaml \
-                | yq -r '.data["superset_config.py"]'
+              kubectl -n "$NAMESPACE" get cm test-superset-node-default \
+                -o go-template='{{index .data "superset_config.py"}}'
             )
 
             # The role-group header replaces the complete role-level header value,
