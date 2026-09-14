@@ -28,30 +28,45 @@ diff.
   (`upgrade-primary=true` or `upgrade-secondary=true`).
 - Gen 3 creates the per-cluster workload ServiceAccount
   `supersetcluster-upgrade` and puts it on both pod templates.
+- Gen 3 adopts the role PDB with a controller owner reference. The rollback
+  maintenance procedure removes only that ownership marker before the Gen 2
+  controller resumes, preserving the PDB UID and restoring its original shape.
+- Superset keeps its Gen 2 `OrderedReady` pod management policy explicitly;
+  operator-go's `Parallel` default is intended for quorum products and is not an
+  approved migration difference here.
 - Gen 3 applies the canonical security contexts (uid 1001, gid 0, fsGroup 1001,
   RuntimeDefault seccomp, no privilege escalation, and dropped capabilities).
+- Superset explicitly preserves the effective Gen 2 `enableServiceLinks: true`
+  default. A user may still set it to `false` through `podOverrides`; changing
+  the default during this refactor is not an approved compatibility break.
 - Gen 3 changes the startup command to copy projected configuration with `cp -RL`,
   so nested overrides and ConfigMap symlinks are followed. Startup, readiness,
   and liveness probes are not an approved difference: the comparator requires
-  their exact Gen 2 `/health` behavior through upgrade and rollback. In
-  particular, startup keeps the named `http` port with `4/6/3/30/1` timing,
-  while readiness and liveness keep port `8088` with `30/10/5/3/1` timing
-  (initial delay, period, timeout, failure threshold, success threshold).
+  startup to remain absent and readiness/liveness to retain their exact Gen 2
+  `/health` behavior on port `8088` with `30/10/5/3/1` timing (initial delay,
+  period, timeout, failure threshold, success threshold).
 - The always-on `metrics` process moves from an ordinary container to a
   Kubernetes native sidecar (`initContainers[*].restartPolicy=Always`). The
-  comparator asserts both the Gen 2 and Gen 3 shapes and the rollback restoration.
+  comparator asserts both the Gen 2 and Gen 3 shapes, the unchanged image,
+  command, arguments and resources, and the rollback restoration.
 - The old default pod anti-affinity is not carried forward. It selected
   `app.kubernetes.io/name=hbase`, a copy/paste value that never selected these
   Superset pods.
-- `log_config.py` is rendered by the framework's Python logging engine and
-  `superset_config.py` invokes that dictConfig. Their bytes differ even though
-  the filenames and runtime contract remain. Health plus database-backed login
-  is checked in every phase. The old empty `vector.yaml` may disappear when no
-  Vector aggregator is configured.
+- Superset's compatibility layer uses operator-go's Python logging generator
+  for `log_config.py`, and `superset_config.py` invokes that dictConfig. The
+  bytes differ, but the Gen 2 default file-logging contract remains: one 30Mi
+  `log` emptyDir, a read-write `/kubedoop/log/` mount on `node`, a rotating JSON
+  file at `/kubedoop/log/superset/superset.py.json`, a 1MiB file limit and one
+  backup. The script verifies that file is non-empty for both role groups in
+  every phase. Health plus database-backed login is also checked in every
+  phase. The old empty `vector.yaml` may disappear when no Vector aggregator is
+  configured.
 - A configured Vector pipeline uses the framework's native sidecar form. This
   minimal external-database fixture does not install a Vector aggregator, so
   that shape remains covered by the normal logging E2E suite rather than this
-  migration run.
+  migration run. Existing CRs that only set
+  `vectorAggregatorConfigMapName` retain the Gen 2 implicit-enable behavior;
+  an explicit role or role-group `logging.enableVectorAgent: false` wins.
 
 The `external-unstable` listener contract is asserted separately from the broad
 resource diff: both client Services must remain the same `NodePort` objects with
@@ -77,13 +92,15 @@ rollback rather than being downgraded.
 
 The normalized views remove Kubernetes-assigned timestamps, UIDs, resource
 versions, generations, managed fields, deployment revision annotations,
-owner-reference UIDs, Service cluster IPs, health-check node ports, and allocated
-node ports. The after comparison permits changes only in the explicitly reviewed
+legacy `banzaicloud.com/last-applied` payloads, owner-reference UIDs, Service
+cluster IPs, health-check node ports, and allocated node ports. The after
+comparison permits changes only in the explicitly reviewed
 StatefulSet pod-template/identity seams, ConfigMap data/labels, client Service
-identity labels/selectors, and role PDB labels/selectors. Everything outside
+identity labels/selectors, and role PDB labels/selectors/ownership. Everything outside
 those seams must remain byte-equivalent after normalization; the allowed seams
 then have semantic assertions for image, probes, ports, security, sidecar shape,
-selectors, readiness, and runtime login. Identity is checked
+application logging, `enableServiceLinks`, selectors, readiness, and runtime
+login. Identity is checked
 separately: the SupersetCluster, credentials Secret digest/UID, PostgreSQL PVC
 UID plus PV name/UID/claim binding, and client Service UIDs must survive all
 three phases. Superset StatefulSet and Pod UIDs are intentionally not stable

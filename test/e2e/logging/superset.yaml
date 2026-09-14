@@ -14,13 +14,12 @@ spec:
   clusterConfig:
     credentialsSecret: superset-credentials
     vectorAggregatorConfigMapName: vector-aggregator-discovery
+  # Gen 2 enabled Vector from the aggregator reference alone. Keep this fixture
+  # free of an explicit logging.enableVectorAgent to exercise that compatibility path.
   node:
     roleGroups:
       default:
         replicas: 1
-        config:
-          logging:
-            enableVectorAgent: true
 ---
 apiVersion: v1
 kind: Secret

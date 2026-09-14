@@ -8,6 +8,7 @@ import (
 	"strconv"
 
 	authv1alpha1 "github.com/zncdatadev/operator-go/pkg/apis/authentication/v1alpha1"
+	commonsv1alpha1 "github.com/zncdatadev/operator-go/pkg/apis/commons/v1alpha1"
 	opgoconfig "github.com/zncdatadev/operator-go/pkg/config"
 	"github.com/zncdatadev/operator-go/pkg/constant"
 	"github.com/zncdatadev/operator-go/pkg/listener"
@@ -15,11 +16,15 @@ import (
 	"github.com/zncdatadev/operator-go/pkg/reconciler"
 	"github.com/zncdatadev/operator-go/pkg/security"
 	"github.com/zncdatadev/operator-go/pkg/sidecar"
+	"github.com/zncdatadev/operator-go/pkg/vector"
+	appsv1 "k8s.io/api/apps/v1"
 	corev1 "k8s.io/api/core/v1"
+	"k8s.io/apimachinery/pkg/api/resource"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 	"k8s.io/apimachinery/pkg/runtime"
 	"k8s.io/apimachinery/pkg/util/intstr"
 	"k8s.io/apimachinery/pkg/util/strategicpatch"
+	"k8s.io/utils/ptr"
 	"sigs.k8s.io/controller-runtime/pkg/client"
 
 	supersetv1alpha1 "github.com/zncdatadev/superset-operator/api/v1alpha1"
@@ -63,8 +68,12 @@ const (
 	ldapCredentialsVolumeName  = "ldap-bind-credentials"
 	ldapCredentialsStorageSize = "1Mi"
 
-	// maxLogFileSize bounds the shared log emptyDir the Vector sidecar provider creates.
-	maxLogFileSize = "10Mi"
+	// Gen 2 sized the shared emptyDir from a 10Mi logical log budget, which the old
+	// CalculateLogVolumeSizeLimit helper expanded to 30Mi. Keep that effective pod
+	// resource limit while retaining its 1Mi/one-backup Python rotation contract.
+	logVolumeSize     = "30Mi"
+	logFileSize       = "1MB"
+	logFileMaxHistory = 1
 )
 
 // credentialsKeyMapping maps container environment variables to keys of the credentials
@@ -113,6 +122,7 @@ func (h *SupersetRoleGroupHandler) DeclareRoles(
 	cr *supersetv1alpha1.SupersetCluster,
 ) (reconciler.RoleCatalog, error) {
 	listenerClass := listener.ListenerClassExternalUnstable
+	var configDefaults *commonsv1alpha1.RoleGroupConfigSpec
 	env := []corev1.EnvVar{{
 		Name:  "SUPERSET_PORT",
 		Value: strconv.FormatInt(int64(httpPort), 10),
@@ -127,6 +137,14 @@ func (h *SupersetRoleGroupHandler) DeclareRoles(
 		}
 		if auth := cr.Spec.ClusterConfig.Authentication; auth != nil && auth.Oidc != nil {
 			env = append(env, oidcClientCredentialsEnv(auth.Oidc.ClientCredentialsSecret)...)
+		}
+		// Gen 2 treated the presence of an aggregator discovery ConfigMap as enabling
+		// Vector. Model that as a product default beneath the role/group logging config,
+		// so an existing CR keeps working and an explicit enableVectorAgent: false wins.
+		if cr.Spec.ClusterConfig.VectorAggregatorConfigMapName != "" {
+			configDefaults = &commonsv1alpha1.RoleGroupConfigSpec{
+				Logging: &commonsv1alpha1.LoggingSpec{EnableVectorAgent: ptr.To(true)},
+			}
 		}
 	}
 
@@ -143,20 +161,6 @@ func (h *SupersetRoleGroupHandler) DeclareRoles(
 		FailureThreshold:    3,
 		SuccessThreshold:    1,
 	}
-	startupProbe := &corev1.Probe{
-		ProbeHandler: corev1.ProbeHandler{
-			HTTPGet: &corev1.HTTPGetAction{
-				Path: healthPath,
-				Port: intstr.FromString(portHTTPName),
-			},
-		},
-		InitialDelaySeconds: 4,
-		PeriodSeconds:       6,
-		TimeoutSeconds:      3,
-		FailureThreshold:    30,
-		SuccessThreshold:    1,
-	}
-
 	return reconciler.RoleCatalog{
 		supersetv1alpha1.RoleNameNode: {
 			MainContainerName: supersetv1alpha1.RoleNameNode,
@@ -170,20 +174,20 @@ func (h *SupersetRoleGroupHandler) DeclareRoles(
 			Command:        []string{"sh", "-x", "-c", mainContainerCommands()},
 			ReadinessProbe: probe.DeepCopy(),
 			LivenessProbe:  probe.DeepCopy(),
-			StartupProbe:   startupProbe,
 			ListenerClass:  listenerClass,
 			LogProducers: []productlogging.ContainerLogging{
 				{
 					Container:   supersetv1alpha1.RoleNameNode,
-					Framework:   productlogging.LoggingFrameworkPython,
 					LogFileName: supersetLogFileName,
-					// The producer is the real pod container (so Vector mounts it), while
+					// An empty Framework declares a product-rendered logging file. The
+					// producer remains the real pod container (so Vector mounts it), while
 					// the historical event tag and log directory stay "superset".
 					LogDirName: supersetLogContainer,
 				},
 			},
-			LogVolumeSize: maxLogFileSize,
-			Env:           env,
+			LogVolumeSize:  logVolumeSize,
+			ConfigDefaults: configDefaults,
+			Env:            env,
 		},
 	}, nil
 }
@@ -199,6 +203,8 @@ func (h *SupersetRoleGroupHandler) BuildResources(
 	buildCtx *reconciler.RoleGroupBuildContext,
 ) (*reconciler.RoleGroupResources, error) {
 	applyLegacyCLIOverrides(buildCtx)
+	applyLegacyPodDefaults(buildCtx)
+	registerLegacyLogVolume(buildCtx)
 
 	authProvider, err := fetchAuthProvider(ctx, k8sClient, cr)
 	if err != nil {
@@ -248,7 +254,14 @@ func (h *SupersetRoleGroupHandler) BuildResources(
 	if err != nil {
 		return nil, err
 	}
+	if err := renderLegacyFileLogging(resources.ConfigMap, buildCtx); err != nil {
+		return nil, fmt.Errorf("render legacy file logging: %w", err)
+	}
 
+	// Superset historically used OrderedReady. The framework defaults to Parallel for
+	// quorum products, but Superset has no quorum-startup requirement and changing this
+	// immutable field would be an unnecessary workload semantic drift during migration.
+	resources.StatefulSet.Spec.PodManagementPolicy = appsv1.OrderedReadyPodManagement
 	addPrometheusAnnotations(resources.Service)
 
 	return resources, nil
@@ -265,6 +278,92 @@ func applyLegacyCLIOverrides(buildCtx *reconciler.RoleGroupBuildContext) {
 	}
 	buildCtx.Declaration.Command = append([]string(nil), buildCtx.MergedConfig.CliArgs...)
 	buildCtx.MergedConfig.CliArgs = nil
+}
+
+// applyLegacyPodDefaults keeps kubelet Service environment injection enabled when the CR has no
+// opinion. Gen 2 relied on the Kubernetes default (true); operator-go v0.13 deliberately defaults
+// it to false. Writing this into the product's pod-override layer before the base build preserves
+// the old behavior while still allowing an explicit podOverride value of false to win.
+func applyLegacyPodDefaults(buildCtx *reconciler.RoleGroupBuildContext) {
+	if buildCtx == nil || buildCtx.MergedConfig == nil {
+		return
+	}
+	if buildCtx.MergedConfig.PodOverrides == nil {
+		buildCtx.MergedConfig.PodOverrides = &corev1.PodTemplateSpec{}
+	}
+	if buildCtx.MergedConfig.PodOverrides.Spec.EnableServiceLinks == nil {
+		buildCtx.MergedConfig.PodOverrides.Spec.EnableServiceLinks = ptr.To(true)
+	}
+}
+
+// registerLegacyLogVolume restores Gen 2's always-present application log volume when the
+// framework's Vector pipeline is inactive. operator-go v0.13 owns the same volume and producer
+// mount while Vector is active, so the fallback must be mutually exclusive to avoid duplicate
+// Kubernetes volume names.
+func registerLegacyLogVolume(buildCtx *reconciler.RoleGroupBuildContext) {
+	if buildCtx == nil || len(buildCtx.Declaration.LogProducers) == 0 ||
+		buildCtx.LogFileTarget(buildCtx.Declaration.LogProducers[0]) != "" {
+		return
+	}
+	size := resource.MustParse(logVolumeSize)
+	buildCtx.VolumeProviders = append(buildCtx.VolumeProviders, &staticVolumeProvider{
+		volumes: []corev1.Volume{{
+			Name: vector.VectorLogVolumeName,
+			VolumeSource: corev1.VolumeSource{EmptyDir: &corev1.EmptyDirVolumeSource{
+				SizeLimit: &size,
+			}},
+		}},
+		mounts: []corev1.VolumeMount{{
+			Name:      vector.VectorLogVolumeName,
+			MountPath: constant.KubedoopLogDir,
+		}},
+	})
+}
+
+// renderLegacyFileLogging keeps Superset's rolling JSON file appender active with or without
+// Vector. The producer is declared product-rendered because the framework intentionally couples
+// its generated file appender to Vector; this compatibility layer adds the ConfigMap entry after
+// the base build and keeps the previous rotation bounds in both modes.
+func renderLegacyFileLogging(
+	configMap *corev1.ConfigMap,
+	buildCtx *reconciler.RoleGroupBuildContext,
+) error {
+	if configMap == nil || buildCtx == nil || len(buildCtx.Declaration.LogProducers) == 0 {
+		return nil
+	}
+	producer := buildCtx.Declaration.LogProducers[0]
+	generator, err := productlogging.GeneratorFor(productlogging.LoggingFrameworkPython)
+	if err != nil {
+		return err
+	}
+	fileName := producer.FileName
+	if fileName == "" {
+		fileName = generator.DefaultFileName()
+	}
+	logFileName := producer.LogFileName
+	if logFileName == "" {
+		logFileName = productlogging.ContainerLogFileName(productlogging.LoggingFrameworkPython, producer.Container)
+	}
+	content, err := generator.Render(
+		productlogging.LogConfigFromSpec(buildCtx.ContainerLogging(producer.Container)),
+		productlogging.RenderOptions{
+			Pattern:        producer.Pattern,
+			FileOutputPath: path.Join(productlogging.LogDirFor(producer), logFileName),
+			MaxFileSize:    logFileSize,
+			MaxHistory:     logFileMaxHistory,
+		},
+	)
+	if err != nil {
+		return err
+	}
+	if _, exists := configMap.Data[fileName]; exists {
+		return reconciler.NewValidationError(
+			"logging", buildCtx.RoleName, buildCtx.RoleGroupName,
+			fmt.Errorf("product logging config file %q collides with an existing ConfigMap key", fileName),
+		)
+	}
+	configMap.Data[fileName] = content
+	return nil
 }
 
 // metricsNativeSidecar declares the statsd-exporter as a Kubernetes native sidecar. A user
@@ -378,14 +477,9 @@ func ResolveSupersetConfig(
 	if cr.Spec.ClusterConfig != nil {
 		auth = cr.Spec.ClusterConfig.Authentication
 	}
-	vectorActive := false
-	if buildCtx != nil && len(buildCtx.Declaration.LogProducers) > 0 {
-		vectorActive = buildCtx.LogFileTarget(buildCtx.Declaration.LogProducers[0]) != ""
-	}
-
 	return &reconciler.Contribution{ConfigOverrides: map[string]map[string]string{
 		supersetConfigFilename: {
-			supersetConfigGeneratedContentKey: renderSupersetConfig(authProvider, auth, vectorActive),
+			supersetConfigGeneratedContentKey: renderSupersetConfig(authProvider, auth),
 		},
 	}}, nil
 }
@@ -460,6 +554,19 @@ func oidcClientCredentialsEnv(credentialsSecret string) []corev1.EnvVar {
 type fixedMountVolumeProvider struct {
 	reconciler.VolumeProvider
 	mountPath string
+}
+
+type staticVolumeProvider struct {
+	volumes []corev1.Volume
+	mounts  []corev1.VolumeMount
+}
+
+func (p *staticVolumeProvider) Volumes() []corev1.Volume {
+	return append([]corev1.Volume(nil), p.volumes...)
+}
+
+func (p *staticVolumeProvider) VolumeMounts() []corev1.VolumeMount {
+	return append([]corev1.VolumeMount(nil), p.mounts...)
 }
 
 func (p *fixedMountVolumeProvider) VolumeMounts() []corev1.VolumeMount {

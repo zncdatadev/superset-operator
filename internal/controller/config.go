@@ -118,7 +118,6 @@ const (
 func renderSupersetConfig(
 	authProvider *authv1alpha1.AuthenticationProvider,
 	auth *supersetv1alpha1.AuthenticationSpec,
-	vectorActive bool,
 ) string {
 	config := `import logging.config
 import os
@@ -140,13 +139,8 @@ class KubedoopLoggingConfigurator(LoggingConfigurator):
 LOGGING_CONFIGURATOR = KubedoopLoggingConfigurator()
 
 `
-	if vectorActive {
-		// The shared log volume is only mounted when the Vector pipeline is active; the
-		// dictConfig file handler below opens its file at import time.
-		config += `os.makedirs('` + supersetLogDir + `', exist_ok=True)
-`
-	}
-	config += `logging.config.dictConfig(log_config.LOGGING)
+	config += `os.makedirs('` + supersetLogDir + `', exist_ok=True)
+logging.config.dictConfig(log_config.LOGGING)
 
 ROW_LIMIT = 10000
 

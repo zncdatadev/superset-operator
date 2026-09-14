@@ -6,6 +6,7 @@ import difflib
 import hashlib
 import json
 import pathlib
+import re
 import sys
 
 
@@ -46,6 +47,7 @@ def normalized_resource(value):
     ):
         metadata.pop(key, None)
     annotations = metadata.get("annotations", {})
+    annotations.pop("banzaicloud.com/last-applied", None)
     annotations.pop("kubectl.kubernetes.io/last-applied-configuration", None)
     annotations.pop("deployment.kubernetes.io/revision", None)
     if not annotations:
@@ -105,6 +107,7 @@ def assert_only_approved_after_fields(root, before, after):
         )
     allowed[("PodDisruptionBudget", f"{CLUSTER_NAME}-{ROLE_NAME}")] = (
         ("metadata", "labels"),
+        ("metadata", "ownerReferences"),
         ("spec", "selector"),
     )
 
@@ -222,7 +225,11 @@ def assert_probe_transition(old_sts, new_sts, restored_sts, name):
         name,
         "main-container environment changed across the operator-only migration",
     )
-    for probe_name in ("startupProbe", "livenessProbe", "readinessProbe"):
+    assert all(
+        container.get("startupProbe") is None
+        for container in (old, new, restored)
+    ), (name, "startupProbe must remain absent across the operator-only migration")
+    for probe_name in ("livenessProbe", "readinessProbe"):
         assert new.get(probe_name) == old.get(probe_name) == restored.get(probe_name), (
             name,
             "probe shape changed across the operator-only migration",
@@ -250,30 +257,19 @@ def assert_probe_transition(old_sts, new_sts, restored_sts, name):
             probe_name,
             probe,
         )
-        expected_port = "http" if probe_name == "startupProbe" else 8088
-        assert probe.get("httpGet", {}).get("port") == expected_port, (
+        assert probe.get("httpGet", {}).get("port") == 8088, (
             name,
             "framework health probe port",
             probe_name,
             probe,
         )
-        expected_timing = (
-            {
-                "initialDelaySeconds": 4,
-                "periodSeconds": 6,
-                "timeoutSeconds": 3,
-                "failureThreshold": 30,
-                "successThreshold": 1,
-            }
-            if probe_name == "startupProbe"
-            else {
-                "initialDelaySeconds": 30,
-                "periodSeconds": 10,
-                "timeoutSeconds": 5,
-                "failureThreshold": 3,
-                "successThreshold": 1,
-            }
-        )
+        expected_timing = {
+            "initialDelaySeconds": 30,
+            "periodSeconds": 10,
+            "timeoutSeconds": 5,
+            "failureThreshold": 3,
+            "successThreshold": 1,
+        }
         actual_timing = {key: probe.get(key) for key in expected_timing}
         assert actual_timing == expected_timing, (
             name,
@@ -549,6 +545,71 @@ def container_names(pod_spec, field):
     return {container["name"] for container in pod_spec.get(field, [])}
 
 
+def named_container(pod_spec, field, name):
+    matches = [item for item in pod_spec.get(field, []) if item["name"] == name]
+    assert len(matches) == 1, (field, name, "container count", len(matches))
+    return matches[0]
+
+
+def assert_application_logging(root, phase, statefulset, config_map, group):
+    name = statefulset["metadata"]["name"]
+    pod = statefulset["spec"]["template"]["spec"]
+    assert pod.get("enableServiceLinks", True) is True, (
+        name,
+        phase,
+        "effective enableServiceLinks must preserve the Gen 2 default",
+        pod.get("enableServiceLinks"),
+    )
+
+    log_volumes = [volume for volume in pod.get("volumes", []) if volume["name"] == "log"]
+    assert len(log_volumes) == 1, (name, phase, "log volume count", log_volumes)
+    assert log_volumes[0].get("emptyDir", {}).get("sizeLimit") == "30Mi", (
+        name,
+        phase,
+        "log emptyDir sizeLimit",
+        log_volumes[0],
+    )
+
+    main = named_container(pod, "containers", ROLE_NAME)
+    log_mounts = [mount for mount in main.get("volumeMounts", []) if mount["name"] == "log"]
+    assert len(log_mounts) == 1, (name, phase, "log mount count", log_mounts)
+    assert log_mounts[0].get("mountPath") == "/kubedoop/log/", (
+        name,
+        phase,
+        "log mount path",
+        log_mounts[0],
+    )
+    assert log_mounts[0].get("readOnly", False) is False, (
+        name,
+        phase,
+        "log mount unexpectedly read-only",
+        log_mounts[0],
+    )
+
+    log_config = config_map["data"]["log_config.py"]
+    combined_config = log_config + "\n" + config_map["data"]["superset_config.py"]
+    assert "RotatingFileHandler" in log_config, (name, phase, "file appender missing")
+    assert "/kubedoop/log/superset" in combined_config, (
+        name,
+        phase,
+        "application log directory",
+    )
+    assert "superset.py.json" in combined_config, (
+        name,
+        phase,
+        "application log file name",
+    )
+    assert "1048576" in log_config, (name, phase, "1MiB rotation limit missing")
+    assert re.search(r"backupCount[^0-9]*1", log_config), (
+        name,
+        phase,
+        "one-file rotation history missing",
+    )
+
+    byte_count = int((root / f"{phase}-{group}-application-log-bytes.txt").read_text())
+    assert byte_count > 0, (name, phase, "rolling application log is empty", byte_count)
+
+
 def assert_metrics_sidecar_transition(old, new, restored, name):
     old_pod = old["template"]["spec"]
     new_pod = new["template"]["spec"]
@@ -562,6 +623,17 @@ def assert_metrics_sidecar_transition(old, new, restored, name):
         for container in new_pod.get("initContainers", [])
         if container["name"] == "metrics"
     )
+    old_metrics = named_container(old_pod, "containers", "metrics")
+    restored_metrics = named_container(restored_pod, "containers", "metrics")
+    for field in ("image", "imagePullPolicy", "command", "args", "resources"):
+        assert old_metrics.get(field) == native_metrics.get(field) == restored_metrics.get(field), (
+            name,
+            "metrics runtime field changed during native-sidecar migration",
+            field,
+            old_metrics.get(field),
+            native_metrics.get(field),
+            restored_metrics.get(field),
+        )
     assert native_metrics.get("restartPolicy") == "Always", (
         name,
         "metrics is not a Kubernetes native sidecar",
@@ -721,6 +793,10 @@ def main(root):
             name,
             "rollback podManagementPolicy",
         )
+        assert new.get("podManagementPolicy") == old.get("podManagementPolicy") == "OrderedReady", (
+            name,
+            "podManagementPolicy changed across the Gen 3 migration",
+        )
 
         old_selector = old["selector"]["matchLabels"]
         new_selector = new["selector"]["matchLabels"]
@@ -804,6 +880,9 @@ def main(root):
                 name,
                 "non-empty vector config disappeared",
             )
+        assert_application_logging(root, "before", old_sts, old_cm, group)
+        assert_application_logging(root, "after", new_sts, new_cm, group)
+        assert_application_logging(root, "rollback", restored_sts, restored_cm, group)
 
     workload_sa = get(after, "ServiceAccount", WORKLOAD_SA)
     owners = workload_sa["metadata"].get("ownerReferences", [])
@@ -815,6 +894,21 @@ def main(root):
     pdb_name = f"{CLUSTER_NAME}-{ROLE_NAME}"
     pdbs = [get(snapshots[phase], "PodDisruptionBudget", pdb_name) for phase in PHASES]
     assert len({uid(item) for item in pdbs}) == 1, "role PDB identity changed"
+    expected_pdb_owner = [{
+        "apiVersion": "superset.kubedoop.dev/v1alpha1",
+        "blockOwnerDeletion": True,
+        "controller": True,
+        "kind": "SupersetCluster",
+        "name": CLUSTER_NAME,
+    }]
+    normalized_pdb_owners = [
+        normalized_resource(item)["metadata"].get("ownerReferences", [])
+        for item in pdbs
+    ]
+    assert normalized_pdb_owners == [[], expected_pdb_owner, []], (
+        "role PDB ownership did not follow Gen 2 -> Gen 3 -> Gen 2",
+        normalized_pdb_owners,
+    )
     assert all(item["spec"].get("maxUnavailable") == 1 for item in pdbs), (
         "role PDB maxUnavailable",
         [item["spec"] for item in pdbs],

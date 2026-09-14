@@ -322,6 +322,25 @@ PY
     return 1
 }
 
+application_logs_ready() {
+    local group
+    for group in primary secondary; do
+        k exec "upgrade-node-$group-0" -c node -- \
+            sh -c 'test -s /kubedoop/log/superset/superset.py.json' \
+            >/dev/null 2>&1 || return 1
+    done
+}
+
+capture_application_logs() {
+    local phase=$1
+    local group
+    for group in primary secondary; do
+        k exec "upgrade-node-$group-0" -c node -- \
+            sh -c 'wc -c < /kubedoop/log/superset/superset.py.json' \
+            > "$evidence/$phase-$group-application-log-bytes.txt"
+    done
+}
+
 snapshot() {
     local phase=$1
     k get sts,cm,svc,pdb,sa -o json > "$evidence/$phase-resources.json"
@@ -359,6 +378,7 @@ identity = {
 print(json.dumps(identity, sort_keys=True))
 ' > "$evidence/$phase-credentials.json"
     capture_database "$phase"
+    capture_application_logs "$phase"
 }
 
 current_context=$(kubectl_cmd config current-context)
@@ -438,6 +458,7 @@ for group in primary secondary; do
     wait_for "baseline $group StatefulSet ready" statefulset_ready "upgrade-node-$group"
 done
 wait_for 'baseline health and database-backed login on both groups' probe_api_once before
+wait_for 'baseline rolling application logs on both groups' application_logs_ready
 wait_for 'baseline role PDB covers both ready groups' pdb_ready
 db_query 'CREATE TABLE IF NOT EXISTS kubedoop_framework_upgrade_marker (phase text PRIMARY KEY, created_at timestamptz NOT NULL DEFAULT now())' \
     >/dev/null
@@ -451,6 +472,7 @@ for group in primary secondary; do
     wait_for "framework $group StatefulSet ready" statefulset_ready "upgrade-node-$group"
 done
 wait_for 'framework health and database-backed login on both groups' probe_api_once after
+wait_for 'framework rolling application logs on both groups' application_logs_ready
 wait_for 'framework role PDB covers both ready groups' pdb_ready
 mark_phase after-upgrade
 snapshot after
@@ -461,6 +483,10 @@ for group in primary secondary; do
     k delete svc "upgrade-node-$group-headless" --ignore-not-found
 done
 k delete sa supersetcluster-upgrade --ignore-not-found
+# GenericReconciler adopts the role PDB with a controller owner reference. The
+# legacy reconciler preserves foreign metadata, so remove only that Gen 3
+# ownership marker before rollback; the PDB object and UID stay intact.
+k patch pdb upgrade-node --type=merge -p '{"metadata":{"ownerReferences":[]}}'
 # Keep the expanded CRD. The old deployment/RBAC can run against the compatible
 # stored CR while avoiding an unsafe schema downgrade after Gen 3 status writes.
 python3 - "$evidence/baseline-operator.yaml" "$scratch/rollback-operator.yaml" <<'PY'
@@ -481,6 +507,7 @@ for group in primary secondary; do
     wait_for "rollback $group StatefulSet ready" statefulset_ready "upgrade-node-$group"
 done
 wait_for 'rollback health and database-backed login on both groups' probe_api_once rollback
+wait_for 'rollback rolling application logs on both groups' application_logs_ready
 wait_for 'rollback role PDB covers both ready groups' pdb_ready
 mark_phase after-rollback
 snapshot rollback

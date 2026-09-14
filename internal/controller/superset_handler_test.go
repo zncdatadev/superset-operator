@@ -14,6 +14,7 @@ import (
 	"github.com/zncdatadev/operator-go/pkg/reconciler"
 	"github.com/zncdatadev/operator-go/pkg/security"
 	"github.com/zncdatadev/operator-go/pkg/sidecar"
+	"github.com/zncdatadev/operator-go/pkg/vector"
 	appsv1 "k8s.io/api/apps/v1"
 	corev1 "k8s.io/api/core/v1"
 	"k8s.io/apimachinery/pkg/api/resource"
@@ -72,7 +73,9 @@ func TestSupersetRoleGroupHandler_DeclareRoles(t *testing.T) {
 
 	assertSupersetProbe(t, "readiness", declaration.ReadinessProbe)
 	assertSupersetProbe(t, "liveness", declaration.LivenessProbe)
-	assertSupersetStartupProbe(t, declaration.StartupProbe)
+	if declaration.StartupProbe != nil {
+		t.Errorf("startup probe = %#v, want nil to preserve Gen 2 behavior", declaration.StartupProbe)
+	}
 	if declaration.ListenerClass != listener.ListenerClassExternalStable {
 		t.Errorf("listener class = %q, want %q", declaration.ListenerClass, listener.ListenerClassExternalStable)
 	}
@@ -104,14 +107,14 @@ func TestSupersetRoleGroupHandler_DeclareRoles(t *testing.T) {
 	}
 	producer := declaration.LogProducers[0]
 	if producer.Container != supersetv1alpha1.RoleNameNode ||
-		producer.Framework != productlogging.LoggingFrameworkPython ||
+		producer.Framework != "" ||
 		producer.LogFileName != supersetLogFileName ||
 		producer.LogDirName != supersetLogContainer {
-		t.Errorf("log producer = %#v, want node Python producer for %s/%s",
+		t.Errorf("log producer = %#v, want product-rendered node producer for %s/%s",
 			producer, supersetLogContainer, supersetLogFileName)
 	}
-	if declaration.LogVolumeSize != maxLogFileSize {
-		t.Errorf("log volume size = %q, want %q", declaration.LogVolumeSize, maxLogFileSize)
+	if declaration.LogVolumeSize != logVolumeSize {
+		t.Errorf("log volume size = %q, want %q", declaration.LogVolumeSize, logVolumeSize)
 	}
 
 	t.Run("defaults listener class", func(t *testing.T) {
@@ -125,6 +128,111 @@ func TestSupersetRoleGroupHandler_DeclareRoles(t *testing.T) {
 			t.Errorf("default listener class = %q, want %q", got, listener.ListenerClassExternalUnstable)
 		}
 	})
+
+	t.Run("legacy aggregator enables vector beneath user config", func(t *testing.T) {
+		legacyCR := newControllerTestCluster()
+		legacyCR.Spec.ClusterConfig.VectorAggregatorConfigMapName = "vector-aggregator-discovery"
+		legacyCatalog, err := handler.DeclareRoles(context.Background(), nil, legacyCR)
+		if err != nil {
+			t.Fatalf("DeclareRoles() error = %v", err)
+		}
+		defaults := legacyCatalog[supersetv1alpha1.RoleNameNode].ConfigDefaults
+		if defaults == nil || defaults.Logging == nil || defaults.Logging.EnableVectorAgent == nil ||
+			!*defaults.Logging.EnableVectorAgent {
+			t.Fatalf("legacy aggregator vector defaults = %#v, want enabled", defaults)
+		}
+
+		disabled := false
+		userConfig := &commonsv1alpha1.RoleGroupConfigSpec{
+			Logging: &commonsv1alpha1.LoggingSpec{EnableVectorAgent: &disabled},
+		}
+		folded, _, err := reconciler.FoldCommonConfig(defaults, userConfig)
+		if err != nil {
+			t.Fatalf("FoldCommonConfig() error = %v", err)
+		}
+		if folded.Logging == nil || folded.Logging.EnableVectorAgent == nil ||
+			*folded.Logging.EnableVectorAgent {
+			t.Errorf("explicit user vector disable was not preserved: %#v", folded.Logging)
+		}
+	})
+}
+
+func TestApplyLegacyPodDefaults(t *testing.T) {
+	t.Run("defaults service links on", func(t *testing.T) {
+		buildCtx := newMetricsBuildContext(nil)
+		applyLegacyPodDefaults(buildCtx)
+		got := buildCtx.MergedConfig.PodOverrides.Spec.EnableServiceLinks
+		if got == nil || !*got {
+			t.Fatalf("enableServiceLinks = %v, want true", got)
+		}
+	})
+
+	t.Run("preserves explicit false", func(t *testing.T) {
+		disabled := false
+		buildCtx := newMetricsBuildContext(&corev1.PodTemplateSpec{
+			Spec: corev1.PodSpec{EnableServiceLinks: &disabled},
+		})
+		applyLegacyPodDefaults(buildCtx)
+		got := buildCtx.MergedConfig.PodOverrides.Spec.EnableServiceLinks
+		if got == nil || *got {
+			t.Fatalf("enableServiceLinks = %v, want explicit false", got)
+		}
+	})
+}
+
+func TestRegisterLegacyLogVolume(t *testing.T) {
+	producer := productlogging.ContainerLogging{
+		Container:   supersetv1alpha1.RoleNameNode,
+		LogFileName: supersetLogFileName,
+		LogDirName:  supersetLogContainer,
+	}
+
+	t.Run("adds fallback when vector is inactive", func(t *testing.T) {
+		buildCtx := newMetricsBuildContext(nil)
+		buildCtx.Declaration.LogProducers = []productlogging.ContainerLogging{producer}
+		registerLegacyLogVolume(buildCtx)
+		if len(buildCtx.VolumeProviders) != 1 {
+			t.Fatalf("volume providers = %d, want one fallback", len(buildCtx.VolumeProviders))
+		}
+		volumes := buildCtx.VolumeProviders[0].Volumes()
+		volume := requireVolume(t, volumes, vector.VectorLogVolumeName)
+		if volume.EmptyDir == nil || volume.EmptyDir.SizeLimit == nil ||
+			volume.EmptyDir.SizeLimit.Cmp(resource.MustParse(logVolumeSize)) != 0 {
+			t.Errorf("fallback log volume = %#v, want %s emptyDir", volume, logVolumeSize)
+		}
+		mount := requireVolumeMount(t, buildCtx.VolumeProviders[0].VolumeMounts(), vector.VectorLogVolumeName)
+		if mount.MountPath != "/kubedoop/log/" || mount.ReadOnly {
+			t.Errorf("fallback log mount = %#v, want RW /kubedoop/log/", mount)
+		}
+	})
+
+	t.Run("does not duplicate vector-owned volume", func(t *testing.T) {
+		enabled := true
+		buildCtx := newMetricsBuildContext(nil)
+		buildCtx.MergedConfig.Logging = &commonsv1alpha1.LoggingSpec{EnableVectorAgent: &enabled}
+		buildCtx.Declaration.LogProducers = []productlogging.ContainerLogging{producer}
+		registerLegacyLogVolume(buildCtx)
+		if len(buildCtx.VolumeProviders) != 0 {
+			t.Fatalf("volume providers = %#v, want no fallback with Vector active", buildCtx.VolumeProviders)
+		}
+	})
+}
+
+func TestRenderLegacyFileLoggingRejectsConfigCollision(t *testing.T) {
+	buildCtx := newMetricsBuildContext(nil)
+	buildCtx.Declaration.LogProducers = []productlogging.ContainerLogging{{
+		Container:   supersetv1alpha1.RoleNameNode,
+		LogFileName: supersetLogFileName,
+		LogDirName:  supersetLogContainer,
+	}}
+	configMap := &corev1.ConfigMap{Data: map[string]string{logConfigFilename: "user content"}}
+	err := renderLegacyFileLogging(configMap, buildCtx)
+	if err == nil || !strings.Contains(err.Error(), "collides with an existing ConfigMap key") {
+		t.Fatalf("renderLegacyFileLogging() error = %v, want explicit key-collision error", err)
+	}
+	if got := configMap.Data[logConfigFilename]; got != "user content" {
+		t.Errorf("colliding config was overwritten with %q", got)
+	}
 }
 
 func TestSupersetConfigResolverAndGenerator(t *testing.T) {
@@ -371,6 +479,7 @@ func TestSupersetRoleGroupHandler_BuildResourcesLDAPCredentials(t *testing.T) {
 	if resources.StatefulSet == nil || resources.ConfigMap == nil {
 		t.Fatal("BuildResources() omitted StatefulSet or ConfigMap")
 	}
+	assertLegacyWorkloadCompatibility(t, resources)
 
 	volumes := resources.StatefulSet.Spec.Template.Spec.Volumes
 	volume := requireVolume(t, volumes, ldapCredentialsVolumeName)
@@ -405,6 +514,9 @@ func TestSupersetRoleGroupHandler_BuildResourcesLDAPCredentials(t *testing.T) {
 		t.Errorf("LDAP volume mount = %#v, want read-only %q", mount, wantMountPath)
 	}
 	renderedConfig := resources.ConfigMap.Data[supersetConfigFilename]
+	if !strings.Contains(renderedConfig, "os.makedirs('/kubedoop/log/superset', exist_ok=True)") {
+		t.Errorf("rendered %s does not create the persistent log directory:\n%s", supersetConfigFilename, renderedConfig)
+	}
 	for _, credentialFile := range []string{wantMountPath + "/user", wantMountPath + "/password"} {
 		if !strings.Contains(renderedConfig, credentialFile) {
 			t.Errorf("rendered %s does not reference %q:\n%s", supersetConfigFilename, credentialFile, renderedConfig)
@@ -420,6 +532,40 @@ func TestSupersetRoleGroupHandler_BuildResourcesLDAPCredentials(t *testing.T) {
 	}
 	metrics := requireContainer(t, podSpec.InitContainers, metricsContainerName)
 	assertMetricsContainer(t, *metrics, testProductImage)
+}
+
+func assertLegacyWorkloadCompatibility(t *testing.T, resources *reconciler.RoleGroupResources) {
+	t.Helper()
+	if got := resources.StatefulSet.Spec.PodManagementPolicy; got != appsv1.OrderedReadyPodManagement {
+		t.Errorf("pod management policy = %q, want %q", got, appsv1.OrderedReadyPodManagement)
+	}
+
+	podSpec := &resources.StatefulSet.Spec.Template.Spec
+	if podSpec.EnableServiceLinks == nil || !*podSpec.EnableServiceLinks {
+		t.Errorf("enableServiceLinks = %v, want true for Gen 2 compatibility", podSpec.EnableServiceLinks)
+	}
+	logVolume := requireVolume(t, podSpec.Volumes, vector.VectorLogVolumeName)
+	if logVolume.EmptyDir == nil || logVolume.EmptyDir.SizeLimit == nil ||
+		logVolume.EmptyDir.SizeLimit.Cmp(resource.MustParse(logVolumeSize)) != 0 {
+		t.Errorf("log volume = %#v, want %s emptyDir", logVolume, logVolumeSize)
+	}
+	mainContainer := requireContainer(t, podSpec.Containers, supersetv1alpha1.RoleNameNode)
+	logMount := requireVolumeMount(t, mainContainer.VolumeMounts, vector.VectorLogVolumeName)
+	if logMount.MountPath != "/kubedoop/log/" || logMount.ReadOnly {
+		t.Errorf("log volume mount = %#v, want RW /kubedoop/log/", logMount)
+	}
+
+	logConfig := resources.ConfigMap.Data[logConfigFilename]
+	for _, want := range []string{
+		"logging.handlers.RotatingFileHandler",
+		"'/kubedoop/log/superset/superset.py.json'",
+		"'maxBytes': 1048576",
+		"'backupCount': 1",
+	} {
+		if !strings.Contains(logConfig, want) {
+			t.Errorf("rendered %s does not contain %q:\n%s", logConfigFilename, want, logConfig)
+		}
+	}
 }
 
 func resolveAndMergeSupersetConfig(
@@ -576,22 +722,6 @@ func assertSupersetProbe(t *testing.T, label string, probe *corev1.Probe) {
 	if probe.InitialDelaySeconds != 30 || probe.PeriodSeconds != 10 ||
 		probe.TimeoutSeconds != 5 || probe.FailureThreshold != 3 || probe.SuccessThreshold != 1 {
 		t.Errorf("%s probe timing = %#v, want 30s initial, 10s period, 5s timeout, 3/1 thresholds", label, probe)
-	}
-}
-
-func assertSupersetStartupProbe(t *testing.T, probe *corev1.Probe) {
-	t.Helper()
-	if probe == nil || probe.HTTPGet == nil {
-		t.Fatalf("startup probe is not an HTTP probe: %#v", probe)
-	}
-	if probe.HTTPGet.Path != healthPath ||
-		probe.HTTPGet.Port.Type != intstr.String ||
-		probe.HTTPGet.Port.StrVal != portHTTPName {
-		t.Errorf("startup probe target = %#v, want /health on named port %q", probe.HTTPGet, portHTTPName)
-	}
-	if probe.InitialDelaySeconds != 4 || probe.PeriodSeconds != 6 ||
-		probe.TimeoutSeconds != 3 || probe.FailureThreshold != 30 || probe.SuccessThreshold != 1 {
-		t.Errorf("startup probe timing = %#v, want 4s initial, 6s period, 3s timeout, 30/1 thresholds", probe)
 	}
 }
 
