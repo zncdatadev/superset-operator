@@ -24,6 +24,22 @@ type ClusterConfigSpec struct {
 	VectorAggregatorConfigMapName string `json:"vectorAggregatorConfigMapName,omitempty"`
 }
 
+// AppSecretKeySpec defines the app secret key spec.
+//
+// Deprecated: SupersetCluster uses ClusterConfigSpec.CredentialsSecret for the
+// application secret key. This type remains exported for Go API compatibility.
+type AppSecretKeySpec struct {
+	// +kubebuilder:validation=Optional
+	// ExistSecret is the name of the secret that contains the secret key.
+	// It must contain the key `SUPERSET_SECRET_KEY`.
+	// Note: To avoid the key name confusions, the key name must be started with `SUPERSET_`.
+	ExistSecret string `json:"existSecret,omitempty"`
+	// +kubebuilder:validation=Optional
+	// If value is not set, the secret will be generated.
+	// When you migrate the Superset instance, you should keep the same secret key in the new instance.
+	SecretKey string `json:"secretKey,omitempty"`
+}
+
 // AuthenticationSpec defines the authentication spec.
 type AuthenticationSpec struct {
 	// +kubebuilder:validation:Required

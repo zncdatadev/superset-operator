@@ -1,12 +1,15 @@
 package controller
 
 import (
+	"fmt"
 	"net/url"
 	"path"
+	"sort"
 	"strconv"
 	"strings"
 
 	authv1alpha1 "github.com/zncdatadev/operator-go/pkg/apis/authentication/v1alpha1"
+	opgoconfig "github.com/zncdatadev/operator-go/pkg/config"
 	"github.com/zncdatadev/operator-go/pkg/constant"
 
 	supersetv1alpha1 "github.com/zncdatadev/superset-operator/api/v1alpha1"
@@ -25,6 +28,12 @@ const (
 	supersetConfigFilename = "superset_config.py"
 	logConfigFilename      = "log_config.py"
 
+	// The resolver contributes the operator-owned Python module under a private pseudo-key.
+	// The custom marshaler consumes it as a block instead of rendering it as an assignment.
+	supersetConfigGeneratedContentKey = "__KUBEDOOP_OPERATOR_GENERATED_CONTENT"
+	configOverrideFileHeaderKey       = "EXPERIMENTAL_FILE_HEADER"
+	configOverrideFileFooterKey       = "EXPERIMENTAL_FILE_FOOTER"
+
 	// supersetLogContainer names the log producer the framework logging engine renders for.
 	// It deliberately differs from the pod container name ("node"): the Vector pipeline tags
 	// each event with the per-container log directory it was read from, and Superset's log
@@ -33,6 +42,63 @@ const (
 	supersetLogFileName  = "superset.py.json"
 	supersetLogDir       = constant.KubedoopLogDir + supersetLogContainer
 )
+
+// supersetPythonConfigMarshaler emits the free-form superset_config.py module. The two
+// EXPERIMENTAL_FILE_* entries are raw Python blocks placed at the file boundaries. Other
+// configOverride entries are emitted as raw Python assignments after the operator defaults,
+// so they retain normal last-assignment-wins Python semantics. Keys are sorted to keep the
+// ConfigMap byte-stable between reconciles.
+//
+// This is deliberately emit-only: the framework never needs to parse the generated file back.
+type supersetPythonConfigMarshaler struct{}
+
+var _ opgoconfig.ConfigMarshaler = supersetPythonConfigMarshaler{}
+
+func (supersetPythonConfigMarshaler) Marshal(data map[string]string) (string, error) {
+	generatedContent, ok := data[supersetConfigGeneratedContentKey]
+	if !ok {
+		return "", fmt.Errorf("missing operator-generated Superset configuration under key %q", supersetConfigGeneratedContentKey)
+	}
+
+	var result strings.Builder
+	appendPythonFragment(&result, data[configOverrideFileHeaderKey])
+	appendPythonFragment(&result, generatedContent)
+
+	keys := make([]string, 0, len(data))
+	for key := range data {
+		switch key {
+		case supersetConfigGeneratedContentKey, configOverrideFileHeaderKey, configOverrideFileFooterKey:
+			continue
+		default:
+			keys = append(keys, key)
+		}
+	}
+	sort.Strings(keys)
+	for _, key := range keys {
+		result.WriteString(key)
+		result.WriteString(" = ")
+		value := data[key]
+		if value == "" {
+			return "", fmt.Errorf("superset configuration override %q must contain a Python expression", key)
+		}
+		appendPythonFragment(&result, value)
+	}
+
+	appendPythonFragment(&result, data[configOverrideFileFooterKey])
+	return result.String(), nil
+}
+
+// appendPythonFragment preserves a user's block verbatim and only adds the newline required to
+// keep the next independently-rendered block from joining its final line.
+func appendPythonFragment(target *strings.Builder, fragment string) {
+	if fragment == "" {
+		return
+	}
+	target.WriteString(fragment)
+	if !strings.HasSuffix(fragment, "\n") {
+		target.WriteByte('\n')
+	}
+}
 
 const (
 	defaultLDAPFieldEmail     = "email"
@@ -221,7 +287,7 @@ func mainContainerCommands() string {
 	cmds := `
 mkdir --parents /kubedoop/app/pythonpath
 
-cp /kubedoop/mount/config/* /kubedoop/app/pythonpath
+cp -RL /kubedoop/mount/config/* /kubedoop/app/pythonpath
 
 
 prepare_signal_handlers()

@@ -46,6 +46,7 @@ func (s *SupersetClusterSpec) ToGenericSpec() *commonsv1alpha1.GenericClusterSpe
 			Repo:            s.Image.Repo,
 			ProductVersion:  s.Image.ProductVersion,
 			KubedoopVersion: s.Image.KubedoopVersion,
+			PullSecretName:  s.Image.PullSecretName,
 		}
 		if s.Image.PullPolicy != nil {
 			result.Image.PullPolicy = *s.Image.PullPolicy

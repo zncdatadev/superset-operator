@@ -3,15 +3,16 @@ module github.com/zncdatadev/superset-operator
 go 1.25.8
 
 require (
-	github.com/onsi/ginkgo/v2 v2.28.1
-	github.com/onsi/gomega v1.39.1
 	k8s.io/api v0.35.4
 	k8s.io/apimachinery v0.35.4
 	k8s.io/client-go v0.35.4
 	sigs.k8s.io/controller-runtime v0.23.3
 )
 
-require github.com/zncdatadev/operator-go v0.12.7-0.20260802145045-0ec90d7f0f53
+require (
+	github.com/onsi/gomega v1.40.0
+	github.com/zncdatadev/operator-go v0.13.0
+)
 
 require (
 	cel.dev/expr v0.25.1 // indirect

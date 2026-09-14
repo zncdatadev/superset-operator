@@ -27,6 +27,7 @@ import (
 	_ "k8s.io/client-go/plugin/pkg/client/auth"
 
 	authv1alpha1 "github.com/zncdatadev/operator-go/pkg/apis/authentication/v1alpha1"
+	commonsv1alpha1 "github.com/zncdatadev/operator-go/pkg/apis/commons/v1alpha1"
 	opcommon "github.com/zncdatadev/operator-go/pkg/common"
 	"github.com/zncdatadev/operator-go/pkg/reconciler"
 	"k8s.io/apimachinery/pkg/runtime"
@@ -57,6 +58,52 @@ func init() {
 	utilruntime.Must(supersetv1alpha1.AddToScheme(scheme))
 	// +kubebuilder:scaffold:scheme
 
+}
+
+func imageDefaults() commonsv1alpha1.ImageSpec {
+	kubedoopVersion := version.BuildVersion
+	if kubedoopVersion == "" || kubedoopVersion == "N/A" {
+		// `go run` and plain `go test` do not receive the Makefile's ldflags. Use the
+		// same development version as VERSION so v0.13's image-tag validation does not
+		// reject the structured default solely because version.BuildVersion is "N/A".
+		kubedoopVersion = "0.0.0-dev"
+	}
+	return commonsv1alpha1.ImageSpec{
+		Repo:            supersetv1alpha1.DefaultRepository,
+		ProductVersion:  supersetv1alpha1.DefaultProductVersion,
+		KubedoopVersion: kubedoopVersion,
+	}
+}
+
+// externalDependencies declares the namespace-local Secrets that must exist before
+// any role resources are created. The framework reports a missing Secret on the CR
+// status and requeues, instead of creating Pods that can only fail during env setup.
+func externalDependencies(cr *supersetv1alpha1.SupersetCluster) []reconciler.Dependency {
+	if cr.Spec.ClusterConfig == nil {
+		return nil
+	}
+
+	secretNames := []string{cr.Spec.ClusterConfig.CredentialsSecret}
+	if auth := cr.Spec.ClusterConfig.Authentication; auth != nil && auth.Oidc != nil {
+		secretNames = append(secretNames, auth.Oidc.ClientCredentialsSecret)
+	}
+
+	seen := make(map[string]struct{}, len(secretNames))
+	dependencies := make([]reconciler.Dependency, 0, len(secretNames))
+	for _, name := range secretNames {
+		if name == "" {
+			continue
+		}
+		if _, exists := seen[name]; exists {
+			continue
+		}
+		seen[name] = struct{}{}
+		dependencies = append(dependencies, reconciler.Dependency{
+			Kind: reconciler.DependencySecret,
+			Name: name,
+		})
+	}
+	return dependencies
 }
 
 func main() {
@@ -176,11 +223,11 @@ func main() {
 		os.Exit(1)
 	}
 
-	// The extension registry is per-CR-type: it is the channel cluster/role/role-group
-	// extensions would be registered on. Superset has no cluster-scope resources (no
-	// discovery ConfigMap, no cluster-wide Service), so it is constructed empty and handed
-	// to the reconciler explicitly — an unset registry silently skips hooks.
+	// The extension registry is per-CR-type. The migration guard executes before any role
+	// resource is applied, preventing an unsafe in-place transition from
+	// the legacy StatefulSet identity to the Gen 3 identity.
 	extensionRegistry := opcommon.NewExtensionRegistry[*supersetv1alpha1.SupersetCluster]()
+	extensionRegistry.RegisterClusterExtension(controller.NewGen2MigrationGuard())
 
 	roleGroupHandler := controller.NewSupersetRoleGroupHandler(mgr.GetScheme())
 
@@ -190,17 +237,21 @@ func main() {
 		Scheme:    mgr.GetScheme(),
 		// record.EventRecorder is deprecated upstream, but its replacement returns an
 		// incompatible events.EventRecorder — keep the deprecated call for now.
-		Recorder:          mgr.GetEventRecorderFor("superset-cluster-controller"), //nolint:staticcheck
-		RoleGroupHandler:  roleGroupHandler,
+		Recorder:         mgr.GetEventRecorderFor("superset-cluster-controller"), //nolint:staticcheck
+		RoleGroupHandler: roleGroupHandler,
+		RoleProvider:     roleGroupHandler,
+		RoleGroupResolver: reconciler.RoleGroupResolverFunc[*supersetv1alpha1.SupersetCluster](
+			controller.ResolveSupersetConfig,
+		),
+		ImageResolution: reconciler.ImageResolution{
+			ProductName: supersetv1alpha1.DefaultProductName,
+			Defaults:    imageDefaults(),
+		},
+		Dependencies:      externalDependencies,
 		ExtensionRegistry: extensionRegistry,
 		// Prototype is required: the reconciler deep-copies it to fetch the CR and
 		// nil-panics on the first reconcile without it.
 		Prototype: &supersetv1alpha1.SupersetCluster{},
-		// One ServiceAccount per cluster (named after it) avoids the shared-static-SA
-		// ownership conflict when several SupersetClusters share a namespace.
-		ServiceAccountNameFunc: func(cr *supersetv1alpha1.SupersetCluster) string {
-			return cr.GetName()
-		},
 	}
 
 	genericReconciler, err := reconciler.NewGenericReconciler(reconcilerConfig)
