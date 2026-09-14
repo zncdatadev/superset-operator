@@ -299,7 +299,7 @@ CHAINSAW_KUBECONFIG ?= .kubeconfig
 # When run `kind create --image kindest/node:v${KIND_K8S_VERSION}`, the node image version of k8s will be used to create the kind cluster,
 # and the target kubeconfig file will be named as `$(CHAINSAW_KUBECONFIG)` (default: `.kubeconfig`).
 # So if you want to use the target cluster, run `export KUBECONFIG=$(CHAINSAW_KUBECONFIG)` (default: `.kubeconfig`).
-KIND_K8S_VERSION ?= 1.26.15
+KIND_K8S_VERSION ?= 1.35.0
 # The kind node image can found in https://github.com/kubernetes-sigs/kind/releases.
 KIND_IMAGE ?= kindest/node:v${KIND_K8S_VERSION}
 # Define operator dependencies to be installed before running chainsaw tests.
@@ -351,6 +351,93 @@ cleanup-chainsaw-e2e: ## Run the chainsaw cleanup
 			"$(HELM)" uninstall --namespace kubedoop-operators $$dep; \
 		done; \
 	fi
+
+GIT_COMMON_DIR := $(shell git rev-parse --path-format=absolute --git-common-dir)
+FRAMEWORK_UPGRADE_STATE_DIR ?= $(abspath $(GIT_COMMON_DIR)/../.worktree/superset-framework-upgrade)
+FRAMEWORK_UPGRADE_CLUSTER ?= framework-upgrade-superset-operator
+FRAMEWORK_UPGRADE_KUBECONFIG ?= $(FRAMEWORK_UPGRADE_STATE_DIR)/kubeconfig
+# Fixed upstream/main snapshot reviewed as the last Gen 2 baseline on 2026-09-14.
+FRAMEWORK_UPGRADE_BASELINE_REF ?= 358d60208b89eaf95f34867a8201da2ec7770c8b
+FRAMEWORK_UPGRADE_BASELINE_DIR ?= $(FRAMEWORK_UPGRADE_STATE_DIR)/baseline
+FRAMEWORK_UPGRADE_CURRENT_HEAD := $(shell git rev-parse HEAD)
+FRAMEWORK_UPGRADE_FRAMEWORK_REF ?= $(FRAMEWORK_UPGRADE_CURRENT_HEAD)
+FRAMEWORK_UPGRADE_BASELINE_IMAGE ?= superset-operator:framework-upgrade-baseline-$(shell printf '%s' '$(FRAMEWORK_UPGRADE_BASELINE_REF)' | cut -c1-12)
+FRAMEWORK_UPGRADE_IMAGE ?= superset-operator:framework-upgrade-$(shell printf '%s' '$(FRAMEWORK_UPGRADE_FRAMEWORK_REF)' | cut -c1-12)
+FRAMEWORK_UPGRADE_EVIDENCE_DIR ?= $(FRAMEWORK_UPGRADE_STATE_DIR)/evidence
+FRAMEWORK_UPGRADE_PRODUCT_VERSION ?= 4.1.2
+FRAMEWORK_UPGRADE_KUBEDOOP_VERSION ?= $(VERSION)
+# Gen 3 renders the metrics process as a native sidecar; use the CI Kubernetes version.
+FRAMEWORK_UPGRADE_K8S_VERSION ?= 1.35.0
+
+.PHONY: framework-upgrade-e2e
+framework-upgrade-e2e: manifests kustomize ## Run fixed Gen 2 -> Gen 3 -> Gen 2 acceptance in a new isolated kind cluster.
+	@for command in git $(KIND) $(KUBECTL) $(HELM) $(CONTAINER_TOOL) python3; do \
+		command -v $$command >/dev/null 2>&1 || { echo "Required command is unavailable: $$command" >&2; exit 1; }; \
+	done
+	@if "$(KIND)" get clusters | grep -Fxq -- "$(FRAMEWORK_UPGRADE_CLUSTER)"; then \
+		echo "Refusing to reuse kind cluster '$(FRAMEWORK_UPGRADE_CLUSTER)'. Run make cleanup-framework-upgrade-e2e or choose a new FRAMEWORK_UPGRADE_CLUSTER." >&2; \
+		exit 1; \
+	fi
+	@test ! -e "$(FRAMEWORK_UPGRADE_KUBECONFIG)" || { \
+		echo "Refusing stale kubeconfig $(FRAMEWORK_UPGRADE_KUBECONFIG). Run make cleanup-framework-upgrade-e2e first." >&2; \
+		exit 1; \
+	}
+	@mkdir -p "$(FRAMEWORK_UPGRADE_STATE_DIR)" "$(FRAMEWORK_UPGRADE_EVIDENCE_DIR)"
+	@if [ ! -e "$(FRAMEWORK_UPGRADE_BASELINE_DIR)/.git" ]; then \
+		git cat-file -e "$(FRAMEWORK_UPGRADE_BASELINE_REF)^{commit}" || { \
+			echo "Baseline commit is unavailable locally; fetch upstream/main first: $(FRAMEWORK_UPGRADE_BASELINE_REF)" >&2; \
+			exit 1; \
+		}; \
+		git worktree add --detach "$(FRAMEWORK_UPGRADE_BASELINE_DIR)" "$(FRAMEWORK_UPGRADE_BASELINE_REF)"; \
+	fi
+	@test "$$(git -C "$(FRAMEWORK_UPGRADE_BASELINE_DIR)" rev-parse HEAD)" = "$(FRAMEWORK_UPGRADE_BASELINE_REF)" || { \
+		echo "Baseline worktree is not at $(FRAMEWORK_UPGRADE_BASELINE_REF): $(FRAMEWORK_UPGRADE_BASELINE_DIR)" >&2; \
+		exit 1; \
+	}
+	@test -z "$$(git -C "$(FRAMEWORK_UPGRADE_BASELINE_DIR)" status --porcelain)" || { \
+		echo "Baseline worktree is dirty: $(FRAMEWORK_UPGRADE_BASELINE_DIR)" >&2; \
+		exit 1; \
+	}
+	@test -z "$$(git status --porcelain)" || { \
+		echo "Framework worktree must be clean so the image, manifests, fixtures, and recorded ref describe the same source: $(CURDIR)" >&2; \
+		exit 1; \
+	}
+	@$(MAKE) -C "$(FRAMEWORK_UPGRADE_BASELINE_DIR)" docker-build \
+		IMG="$(FRAMEWORK_UPGRADE_BASELINE_IMAGE)" VERSION="$(VERSION)" CONTAINER_TOOL="$(CONTAINER_TOOL)"
+	@$(MAKE) docker-build IMG="$(FRAMEWORK_UPGRADE_IMAGE)" VERSION="$(VERSION)" CONTAINER_TOOL="$(CONTAINER_TOOL)"
+	@$(MAKE) setup-chainsaw-cluster \
+		CHAINSAW_CLUSTER="$(FRAMEWORK_UPGRADE_CLUSTER)" \
+		CHAINSAW_KUBECONFIG="$(FRAMEWORK_UPGRADE_KUBECONFIG)" \
+		KIND_K8S_VERSION="$(FRAMEWORK_UPGRADE_K8S_VERSION)"
+	@frozen="$$(mktemp -d "$(FRAMEWORK_UPGRADE_STATE_DIR)/frozen.XXXXXX")"; \
+		trap 'rm -rf "$$frozen"' EXIT; \
+		mkdir -p "$$frozen/hack" "$$frozen/test/e2e/framework-upgrade"; \
+		cp hack/test-framework-upgrade.sh hack/compare-upgrade-resources.py "$$frozen/hack/"; \
+		cp test/e2e/framework-upgrade/* "$$frozen/test/e2e/framework-upgrade/"; \
+		KUBECONFIG="$(FRAMEWORK_UPGRADE_KUBECONFIG)" \
+		CHAINSAW_CLUSTER="$(FRAMEWORK_UPGRADE_CLUSTER)" \
+		UPGRADE_BASELINE_DIR="$(FRAMEWORK_UPGRADE_BASELINE_DIR)" \
+		UPGRADE_BASELINE_REF="$(FRAMEWORK_UPGRADE_BASELINE_REF)" \
+		UPGRADE_BASELINE_IMAGE="$(FRAMEWORK_UPGRADE_BASELINE_IMAGE)" \
+		UPGRADE_WORKTREE_DIR="$(CURDIR)" \
+		UPGRADE_FRAMEWORK_REF="$(FRAMEWORK_UPGRADE_FRAMEWORK_REF)" \
+		UPGRADE_FIXTURE_DIR="$$frozen/test/e2e/framework-upgrade" \
+		UPGRADE_COMPARATOR="$$frozen/hack/compare-upgrade-resources.py" \
+		UPGRADE_INTENTIONAL_DIFFS="$$frozen/test/e2e/framework-upgrade/intentional-differences.md" \
+		UPGRADE_EVIDENCE_DIR="$(FRAMEWORK_UPGRADE_EVIDENCE_DIR)" \
+		KUSTOMIZE_BIN="$(abspath $(KUSTOMIZE))" \
+		KIND_BIN="$(KIND)" \
+		KUBECTL_BIN="$(KUBECTL)" \
+		CONTAINER_TOOL_BIN="$(CONTAINER_TOOL)" \
+		PRODUCT_VERSION="$(FRAMEWORK_UPGRADE_PRODUCT_VERSION)" \
+		KUBEDOOP_VERSION="$(FRAMEWORK_UPGRADE_KUBEDOOP_VERSION)" \
+		IMG="$(FRAMEWORK_UPGRADE_IMAGE)" \
+		bash "$$frozen/hack/test-framework-upgrade.sh"
+
+.PHONY: cleanup-framework-upgrade-e2e
+cleanup-framework-upgrade-e2e: ## Delete only the dedicated framework-upgrade kind cluster and kubeconfig.
+	$(KIND) delete cluster --name "$(FRAMEWORK_UPGRADE_CLUSTER)"
+	rm -f "$(FRAMEWORK_UPGRADE_KUBECONFIG)"
 
 .PHONY: cleanup-chainsaw-cluster
 cleanup-chainsaw-cluster: ## Tear down the Kind cluster used for chainsaw e2e tests
