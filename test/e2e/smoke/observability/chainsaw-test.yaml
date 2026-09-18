@@ -96,6 +96,9 @@ spec:
   - name: install prometheus
     try:
       - script:
+          # Helm itself waits up to five minutes. Leave margin for repository
+          # metadata and a slow CI Kind control plane.
+          timeout: 8m
           bindings:
             - name: NAMESPACE
               value: ($namespace)

@@ -43,33 +43,44 @@ spec:
           content: |
             set -eu
             # Deployment Spec Test Data
-            SUPERSET_NODE_DEFAULT=$(kubectl -n "$NAMESPACE" get sts test-superset-node-default -o yaml)
-            YQ_FILTER='
-              .spec.template.spec.containers[]
-              | select(.name == "node")
-              | .env[]
-              | select(.name == strenv(KEY) and .value == strenv(VALUE))
-            '
+            SUPERSET_NODE_ENV=$(
+              kubectl -n "$NAMESPACE" get sts test-superset-node-default \
+                -o go-template='{{range .spec.template.spec.containers}}{{if eq .name "node"}}{{range .env}}{{printf "%s=%s\n" .name .value}}{{end}}{{end}}{{end}}'
+            )
 
             # Deployment Spec Test Assertions
-            echo "$SUPERSET_NODE_DEFAULT" | KEY="COMMON_VAR" VALUE="group-value" yq -e "$YQ_FILTER"
-            echo "$SUPERSET_NODE_DEFAULT" | KEY="GROUP_VAR" VALUE="group-value" yq -e "$YQ_FILTER"
-            echo "$SUPERSET_NODE_DEFAULT" | KEY="ROLE_VAR" VALUE="role-value" yq -e "$YQ_FILTER"
-  # TODO: configoverrde not supported currently
-  # - name: test config overrides
-  #   try:
-  #     - script:
-  #         content: |
-  #          set -eu
+            printf '%s\n' "$SUPERSET_NODE_ENV" | grep -Fqx 'COMMON_VAR=group-value'
+            printf '%s\n' "$SUPERSET_NODE_ENV" | grep -Fqx 'GROUP_VAR=group-value'
+            printf '%s\n' "$SUPERSET_NODE_ENV" | grep -Fqx 'ROLE_VAR=role-value'
+  - name: test config overrides
+    try:
+      - script:
+          env:
+            - name: NAMESPACE
+              value: ($namespace)
+          content: |
+            set -eu
 
-  #           # Config Test Data
-  #           SUPERSET_CONFIG=$(
-  #               kubectl -n "$NAMESPACE" get cm test-superset-node-default -o yaml \
-  #               | yq -e '.data["superset_config.py"]'
-  #           )
+            SUPERSET_CONFIG=$(
+              kubectl -n "$NAMESPACE" get cm test-superset-node-default \
+                -o go-template='{{index .data "superset_config.py"}}'
+            )
 
-  #           # Config Test Assertions
-  #           echo "$SUPERSET_CONFIG" | grep 'COMMON_HEADER_VAR = "group-value"'
-  #           echo "$SUPERSET_CONFIG" | grep 'ROLE_FOOTER_VAR = "role-value"'
-  #           echo "$SUPERSET_CONFIG" | grep -v 'ROLE_HEADER_VAR = "role-value"'
-  # - name: test login
+            # The role-group header replaces the complete role-level header value,
+            # while the unrelated role-level footer remains inherited.
+            test "$(printf '%s\n' "$SUPERSET_CONFIG" | sed -n '1p')" = 'COMMON_HEADER_VAR = "group-value"'
+            test "$(printf '%s\n' "$SUPERSET_CONFIG" | tail -n 1)" = 'ROLE_FOOTER_VAR = "role-value"'
+            test "$(printf '%s\n' "$SUPERSET_CONFIG" | grep -Fxc 'COMMON_HEADER_VAR = "group-value"')" -eq 1
+            test "$(printf '%s\n' "$SUPERSET_CONFIG" | grep -Fxc 'ROLE_FOOTER_VAR = "role-value"')" -eq 1
+            ! printf '%s\n' "$SUPERSET_CONFIG" | grep -Fqx 'COMMON_HEADER_VAR = "role-value"'
+            ! printf '%s\n' "$SUPERSET_CONFIG" | grep -Fqx 'ROLE_HEADER_VAR = "role-value"'
+
+            # Ordinary entries are raw Python assignments. The role-group value
+            # replaces the role value and is emitted exactly once.
+            test "$(printf '%s\n' "$SUPERSET_CONFIG" | grep -Fxc 'KUBEDOOP_OVERRIDE_PRECEDENCE = "group-value"')" -eq 1
+            ! printf '%s\n' "$SUPERSET_CONFIG" | grep -Fqx 'KUBEDOOP_OVERRIDE_PRECEDENCE = "role-value"'
+
+            # The operator-generated defaults remain between the two user blocks and
+            # the pseudo keys themselves are not emitted as Python assignments.
+            test "$(printf '%s\n' "$SUPERSET_CONFIG" | grep -Fxc 'ROW_LIMIT = 10000')" -eq 1
+            ! printf '%s\n' "$SUPERSET_CONFIG" | grep -Eq '^EXPERIMENTAL_FILE_(HEADER|FOOTER)[[:space:]]*='

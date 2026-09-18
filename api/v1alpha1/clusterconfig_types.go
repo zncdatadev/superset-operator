@@ -25,6 +25,9 @@ type ClusterConfigSpec struct {
 }
 
 // AppSecretKeySpec defines the app secret key spec.
+//
+// Deprecated: SupersetCluster uses ClusterConfigSpec.CredentialsSecret for the
+// application secret key. This type remains exported for Go API compatibility.
 type AppSecretKeySpec struct {
 	// +kubebuilder:validation=Optional
 	// ExistSecret is the name of the secret that contains the secret key.

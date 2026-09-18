@@ -27,6 +27,9 @@ import (
 	_ "k8s.io/client-go/plugin/pkg/client/auth"
 
 	authv1alpha1 "github.com/zncdatadev/operator-go/pkg/apis/authentication/v1alpha1"
+	commonsv1alpha1 "github.com/zncdatadev/operator-go/pkg/apis/commons/v1alpha1"
+	opcommon "github.com/zncdatadev/operator-go/pkg/common"
+	"github.com/zncdatadev/operator-go/pkg/reconciler"
 	"k8s.io/apimachinery/pkg/runtime"
 	utilruntime "k8s.io/apimachinery/pkg/util/runtime"
 	clientgoscheme "k8s.io/client-go/kubernetes/scheme"
@@ -55,6 +58,52 @@ func init() {
 	utilruntime.Must(supersetv1alpha1.AddToScheme(scheme))
 	// +kubebuilder:scaffold:scheme
 
+}
+
+func imageDefaults() commonsv1alpha1.ImageSpec {
+	kubedoopVersion := version.BuildVersion
+	if kubedoopVersion == "" || kubedoopVersion == "N/A" {
+		// `go run` and plain `go test` do not receive the Makefile's ldflags. Use the
+		// same development version as VERSION so v0.13's image-tag validation does not
+		// reject the structured default solely because version.BuildVersion is "N/A".
+		kubedoopVersion = "0.0.0-dev"
+	}
+	return commonsv1alpha1.ImageSpec{
+		Repo:            supersetv1alpha1.DefaultRepository,
+		ProductVersion:  supersetv1alpha1.DefaultProductVersion,
+		KubedoopVersion: kubedoopVersion,
+	}
+}
+
+// externalDependencies declares the namespace-local Secrets that must exist before
+// any role resources are created. The framework reports a missing Secret on the CR
+// status and requeues, instead of creating Pods that can only fail during env setup.
+func externalDependencies(cr *supersetv1alpha1.SupersetCluster) []reconciler.Dependency {
+	if cr.Spec.ClusterConfig == nil {
+		return nil
+	}
+
+	secretNames := []string{cr.Spec.ClusterConfig.CredentialsSecret}
+	if auth := cr.Spec.ClusterConfig.Authentication; auth != nil && auth.Oidc != nil {
+		secretNames = append(secretNames, auth.Oidc.ClientCredentialsSecret)
+	}
+
+	seen := make(map[string]struct{}, len(secretNames))
+	dependencies := make([]reconciler.Dependency, 0, len(secretNames))
+	for _, name := range secretNames {
+		if name == "" {
+			continue
+		}
+		if _, exists := seen[name]; exists {
+			continue
+		}
+		seen[name] = struct{}{}
+		dependencies = append(dependencies, reconciler.Dependency{
+			Kind: reconciler.DependencySecret,
+			Name: name,
+		})
+	}
+	return dependencies
 }
 
 func main() {
@@ -104,7 +153,7 @@ func main() {
 	// prevent from being vulnerable to the HTTP/2 Stream Cancellation and
 	// Rapid Reset CVEs. For more information see:
 	// - https://github.com/advisories/GHSA-qppj-fm5r-hxr3
-	// - https://github.com/advisories/GHSA-4374-p667-p6c8
+	// - https://github.com/advisories/GHSA-4374-p667-p4c8
 	disableHTTP2 := func(c *tls.Config) {
 		setupLog.Info("disabling http/2")
 		c.NextProtos = []string{"http/1.1"}
@@ -133,8 +182,8 @@ func main() {
 
 	// Metrics endpoint is enabled in 'config/default/kustomization.yaml'. The Metrics options configure the server.
 	// More info:
-	// - https://pkg.go.dev/sigs.k8s.io/controller-runtime@v0.19.1/pkg/metrics/server
-	// - https://book.kubebuilder.io/reference/metrics.html
+	// https://pkg.go.dev/sigs.k8s.io/controller-runtime@v0.19.1/pkg/metrics/server
+	// https://book.kubebuilder.io/reference/metrics.html
 	metricsServerOptions := metricsserver.Options{
 		BindAddress:   metricsAddr,
 		SecureServing: secureMetrics,
@@ -152,11 +201,6 @@ func main() {
 	// If the certificate is not specified, controller-runtime will automatically
 	// generate self-signed certificates for the metrics server. While convenient for development and testing,
 	// this setup is not recommended for production.
-	//
-	// TODO(user): If you enable certManager, uncomment the following lines:
-	// - [METRICS-WITH-CERTS] at config/default/kustomization.yaml to generate and use certificates
-	// managed by cert-manager for the metrics server.
-	// - [PROMETHEUS-WITH-CERTS] at config/prometheus/kustomization.yaml for TLS certification.
 	if len(metricsCertPath) > 0 {
 		setupLog.Info("Initializing metrics certificate watcher using provided certificates",
 			"metrics-cert-path", metricsCertPath, "metrics-cert-name", metricsCertName, "metrics-cert-key", metricsCertKey)
@@ -173,27 +217,50 @@ func main() {
 		LeaderElection:         enableLeaderElection,
 		WebhookServer:          webhookServer,
 		LeaderElectionID:       "e19e02e9.kubedoop.dev",
-		// LeaderElectionReleaseOnCancel defines if the leader should step down voluntarily
-		// when the Manager ends. This requires the binary to immediately end when the
-		// Manager is stopped, otherwise, this setting is unsafe. Setting this significantly
-		// speeds up voluntary leader transitions as the new leader don't have to wait
-		// LeaseDuration time first.
-		//
-		// In the default scaffold provided, the program ends immediately after
-		// the manager stops, so would be fine to enable this option. However,
-		// if you are doing or is intended to do any operation such as perform cleanups
-		// after the manager stops then its usage might be unsafe.
-		// LeaderElectionReleaseOnCancel: true,
 	})
 	if err != nil {
 		setupLog.Error(err, "unable to start manager")
 		os.Exit(1)
 	}
 
-	if err = (&controller.SupersetClusterReconciler{
-		Client: mgr.GetClient(),
-		Scheme: mgr.GetScheme(),
-	}).SetupWithManager(mgr); err != nil {
+	// The extension registry is per-CR-type. The migration guard executes before any role
+	// resource is applied, preventing an unsafe in-place transition from
+	// the legacy StatefulSet identity to the Gen 3 identity.
+	extensionRegistry := opcommon.NewExtensionRegistry[*supersetv1alpha1.SupersetCluster]()
+	extensionRegistry.RegisterClusterExtension(controller.NewGen2MigrationGuard())
+
+	roleGroupHandler := controller.NewSupersetRoleGroupHandler(mgr.GetScheme())
+
+	reconcilerConfig := &reconciler.GenericReconcilerConfig[*supersetv1alpha1.SupersetCluster]{
+		Client:    mgr.GetClient(),
+		APIReader: mgr.GetAPIReader(),
+		Scheme:    mgr.GetScheme(),
+		// record.EventRecorder is deprecated upstream, but its replacement returns an
+		// incompatible events.EventRecorder — keep the deprecated call for now.
+		Recorder:         mgr.GetEventRecorderFor("superset-cluster-controller"), //nolint:staticcheck
+		RoleGroupHandler: roleGroupHandler,
+		RoleProvider:     roleGroupHandler,
+		RoleGroupResolver: reconciler.RoleGroupResolverFunc[*supersetv1alpha1.SupersetCluster](
+			controller.ResolveSupersetConfig,
+		),
+		ImageResolution: reconciler.ImageResolution{
+			ProductName: supersetv1alpha1.DefaultProductName,
+			Defaults:    imageDefaults(),
+		},
+		Dependencies:      externalDependencies,
+		ExtensionRegistry: extensionRegistry,
+		// Prototype is required: the reconciler deep-copies it to fetch the CR and
+		// nil-panics on the first reconcile without it.
+		Prototype: &supersetv1alpha1.SupersetCluster{},
+	}
+
+	genericReconciler, err := reconciler.NewGenericReconciler(reconcilerConfig)
+	if err != nil {
+		setupLog.Error(err, "unable to create reconciler", "controller", "SupersetCluster")
+		os.Exit(1)
+	}
+
+	if err := genericReconciler.SetupWithManager(mgr); err != nil {
 		setupLog.Error(err, "unable to create controller", "controller", "SupersetCluster")
 		os.Exit(1)
 	}

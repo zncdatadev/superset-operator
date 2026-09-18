@@ -1,0 +1,88 @@
+apiVersion: apps/v1
+kind: StatefulSet
+metadata:
+  name: upgrade-postgres
+  labels:
+    app.kubernetes.io/name: upgrade-postgres
+spec:
+  replicas: 1
+  serviceName: upgrade-postgres
+  selector:
+    matchLabels:
+      app.kubernetes.io/name: upgrade-postgres
+  template:
+    metadata:
+      labels:
+        app.kubernetes.io/name: upgrade-postgres
+    spec:
+      containers:
+      - name: postgres
+        image: quay.io/fedora/postgresql-16:20250924
+        env:
+        - name: POSTGRESQL_DATABASE
+          value: superset
+        - name: POSTGRESQL_USER
+          value: superset
+        - name: POSTGRESQL_PASSWORD
+          value: superset
+        ports:
+        - name: db
+          containerPort: 5432
+        readinessProbe:
+          tcpSocket:
+            port: db
+          initialDelaySeconds: 5
+          periodSeconds: 5
+          failureThreshold: 12
+        livenessProbe:
+          tcpSocket:
+            port: db
+          initialDelaySeconds: 15
+          periodSeconds: 10
+          failureThreshold: 6
+        volumeMounts:
+        - name: data
+          mountPath: /var/lib/postgresql/data
+  volumeClaimTemplates:
+  - metadata:
+      name: data
+    spec:
+      accessModes:
+      - ReadWriteOnce
+      resources:
+        requests:
+          storage: 1Gi
+---
+apiVersion: v1
+kind: Service
+metadata:
+  name: upgrade-postgres
+  labels:
+    app.kubernetes.io/name: upgrade-postgres
+spec:
+  selector:
+    app.kubernetes.io/name: upgrade-postgres
+  ports:
+  - name: db
+    port: 5432
+    targetPort: db
+---
+apiVersion: v1
+kind: Pod
+metadata:
+  name: upgrade-client
+  labels:
+    app.kubernetes.io/name: upgrade-client
+spec:
+  restartPolicy: Never
+  securityContext:
+    fsGroup: 1000
+  containers:
+  - name: testing-tools
+    image: quay.io/zncdatadev/testing-tools:0.1.0-kubedoop0.0.0-dev
+    command:
+    - sleep
+    - infinity
+    securityContext:
+      runAsUser: 0
+      runAsGroup: 0

@@ -4,6 +4,11 @@ import (
 	commonsv1alpha1 "github.com/zncdatadev/operator-go/pkg/apis/commons/v1alpha1"
 )
 
+// RoleNameNode is the single role of a SupersetCluster, serving both the web UI
+// and the API. It names the generic Roles map key, the framework resource names
+// (<cluster>-node-<group>) and the main pod container.
+const RoleNameNode = "node"
+
 type NodeSpec struct {
 	RoleGroups                     map[string]NodeRoleGroupSpec    `json:"roleGroups,omitempty"`
 	Config                         *NodeConfigSpec                 `json:"config,omitempty"`

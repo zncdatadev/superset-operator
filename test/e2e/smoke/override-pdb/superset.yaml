@@ -18,6 +18,7 @@ spec:
       ROLE_VAR: role-value   # only defined here at role level
     configOverrides:
       superset_config.py:
+        KUBEDOOP_OVERRIDE_PRECEDENCE: '"role-value"'
         EXPERIMENTAL_FILE_HEADER: |
           COMMON_HEADER_VAR = "role-value"
           ROLE_HEADER_VAR = "role-value"
@@ -28,6 +29,7 @@ spec:
         replicas: 2
         configOverrides:
           superset_config.py:
+            KUBEDOOP_OVERRIDE_PRECEDENCE: '"group-value"'
             EXPERIMENTAL_FILE_HEADER: |
               COMMON_HEADER_VAR = "group-value"
         envOverrides:
